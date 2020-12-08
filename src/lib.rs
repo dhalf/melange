@@ -122,3 +122,4 @@ pub mod algebra;
 pub mod gat;
 pub mod prelude;
 pub mod tensor;
+pub mod backprop;
