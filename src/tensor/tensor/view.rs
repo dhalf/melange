@@ -421,7 +421,7 @@ pub trait AsDynamicMut<'a> {
 
 macro_rules! static_broadcast_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, Y, Z, T, S, D, L, Sout> $trait_name<'a, Sout> for Tensor<Static, Y, Z, T, S, D, L>
+        impl<'a, Y, Z, T, S, A, D, L, Sout> $trait_name<'a, Sout> for Tensor<Static, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             S: StaticShape + BroadcastShape<Sout>,
@@ -429,7 +429,7 @@ macro_rules! static_broadcast_impl {
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<Static, Strided, Z, T, Sout, &'a $( $mut_ )? [T], DynamicLayout<Sout::Len>>;
+            type Output = Tensor<Static, Strided, Z, T, Sout, A, &'a $( $mut_ )? [T], DynamicLayout<Sout::Len>>;
             fn $fn_name(
                 &'a $( $mut_ )? self,
             ) -> Self::Output {
@@ -486,7 +486,7 @@ static_broadcast_impl! { BroadcastMut broadcast_mut { mut } { DerefMut } }
 
 macro_rules! dynamic_broadcast_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, Y, Z, T, S, D, L, Sout> $trait_name<'a, Sout> for Tensor<Dynamic, Y, Z, T, S, D, L>
+        impl<'a, Y, Z, T, S, A, D, L, Sout> $trait_name<'a, Sout> for Tensor<Dynamic, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             S: Shape + BroadcastShape<Sout>,
@@ -494,7 +494,7 @@ macro_rules! dynamic_broadcast_impl {
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<Dynamic, Strided, Z, T, Sout, &'a $( $mut_ )? [T], DynamicLayout<Sout::Len>>;
+            type Output = Tensor<Dynamic, Strided, Z, T, Sout, A, &'a $( $mut_ )? [T], DynamicLayout<Sout::Len>>;
             fn $fn_name(
                 &'a $( $mut_ )? self,
                 runtime_shape: Index<Sout::Len>,
@@ -569,7 +569,7 @@ dynamic_broadcast_impl! { BroadcastDynamicMut broadcast_dynamic_mut { mut } { De
 
 macro_rules! static_stride_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, Y, Z, T, S, D, L, Strides> $trait_name<'a, Strides> for Tensor<Static, Y, Z, T, S, D, L>
+        impl<'a, Y, Z, T, S, A, D, L, Strides> $trait_name<'a, Strides> for Tensor<Static, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             S: StaticShape + StridedShape<Strides>,
@@ -577,7 +577,7 @@ macro_rules! static_stride_impl {
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<Static, Strided, Z, T, <S as StridedShape<Strides>>::Output, &'a $( $mut_ )? [T], DynamicLayout<<<S as StridedShape<Strides>>::Output as Shape>::Len>>;
+            type Output = Tensor<Static, Strided, Z, T, <S as StridedShape<Strides>>::Output, A, &'a $( $mut_ )? [T], DynamicLayout<<<S as StridedShape<Strides>>::Output as Shape>::Len>>;
             fn $fn_name(
                 &'a $( $mut_ )? self,
             ) -> Self::Output {
@@ -623,7 +623,7 @@ static_stride_impl! { StrideMut stride_mut { mut } { DerefMut } }
 
 macro_rules! dynamic_stride_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, Y, Z, T, S, D, L, Strides> $trait_name<'a, Strides> for Tensor<Dynamic, Y, Z, T, S, D, L>
+        impl<'a, Y, Z, T, S, A, D, L, Strides> $trait_name<'a, Strides> for Tensor<Dynamic, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             S: Shape + StridedShapeDyn<Strides>,
@@ -631,7 +631,7 @@ macro_rules! dynamic_stride_impl {
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<Dynamic, Strided, Z, T, <S as StridedShapeDyn<Strides>>::Output, &'a $( $mut_ )? [T], DynamicLayout<<<S as StridedShapeDyn<Strides>>::Output as Shape>::Len>>;
+            type Output = Tensor<Dynamic, Strided, Z, T, <S as StridedShapeDyn<Strides>>::Output, A, &'a $( $mut_ )? [T], DynamicLayout<<<S as StridedShapeDyn<Strides>>::Output as Shape>::Len>>;
             fn $fn_name(
                 &'a $( $mut_ )? self,
                 runtime_strides: Index<Strides::Len>,
@@ -688,14 +688,14 @@ dynamic_stride_impl! { StrideDynamicMut stride_dynamic_mut { mut } { DerefMut } 
 
 macro_rules! transpose_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, X, Y, Z, T, S, D, L> $trait_name<'a> for Tensor<X, Y, Z, T, S, D, L>
+        impl<'a, X, Y, Z, T, S, A, D, L> $trait_name<'a> for Tensor<X, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             S: Shape,
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<X, Strided, Transposed, T, S, &'a $( $mut_ )? [T], DynamicLayout<S::Len>>;
+            type Output = Tensor<X, Strided, Transposed, T, S, A, &'a $( $mut_ )? [T], DynamicLayout<S::Len>>;
             fn $fn_name(&'a $( $mut_ )? self) -> Self::Output {
                 let shape: Vec<_> = Vec::from(self.shape()).into_iter().rev().collect();
                 let strides: Vec<_> = Vec::from(self.strides()).into_iter().rev().collect();
@@ -720,14 +720,14 @@ transpose_impl! { TransposeMut transpose_mut { mut } { DerefMut } }
 
 macro_rules! as_view_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, X, Y, Z, T, S, D, L> $trait_name<'a> for Tensor<X, Y, Z, T, S, D, L>
+        impl<'a, X, Y, Z, T, S, A, D, L> $trait_name<'a> for Tensor<X, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             S: Shape,
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<X, Y, Z, T, S, &'a $( $mut_ )? [T], L>;
+            type Output = Tensor<X, Y, Z, T, S, A, &'a $( $mut_ )? [T], L>;
             fn $fn_name(&'a $( $mut_ )? self) -> Self::Output {
                 Tensor {
                     data: & $( $mut_ )? self.data,
@@ -744,7 +744,7 @@ as_view_impl! { AsViewMut as_view_mut { mut } { DerefMut } }
 
 macro_rules! static_reshape_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, T, S, D, L, Sout> $trait_name<'a, Sout> for Tensor<Static, Contiguous, Normal, T, S, D, L>
+        impl<'a, T, S, A, D, L, Sout> $trait_name<'a, Sout> for Tensor<Static, Contiguous, Normal, T, S, A, D, L>
         where
             T: 'static,
             S: StaticShape,
@@ -753,7 +753,7 @@ macro_rules! static_reshape_impl {
             <S::NumElements as IsEqual<Sout::NumElements>>::Output: TRUE,
             D: $bound<Target = [T]>,
         {
-            type Output = Tensor<Static, Contiguous, Normal, T, Sout, &'a $( $mut_ )? [T], StaticLayout<Sout>>;
+            type Output = Tensor<Static, Contiguous, Normal, T, Sout, A, &'a $( $mut_ )? [T], StaticLayout<Sout>>;
             fn $fn_name(&'a $( $mut_ )? self) -> Self::Output {
                 Tensor {
                     data: & $( $mut_ )? self.data,
@@ -770,7 +770,7 @@ static_reshape_impl! { ReshapeMut reshape_mut { mut } { DerefMut } }
 
 macro_rules! dynamic_reshape_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, T, S, D, L, Sout> $trait_name<'a, Sout> for Tensor<Dynamic, Contiguous, Normal, T, S, D, L>
+        impl<'a, T, S, A, D, L, Sout> $trait_name<'a, Sout> for Tensor<Dynamic, Contiguous, Normal, T, S, A, D, L>
         where
             T: 'static,
             S: Shape,
@@ -778,7 +778,7 @@ macro_rules! dynamic_reshape_impl {
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<Dynamic, Contiguous, Normal, T, Sout, &'a $( $mut_ )? [T], DynamicLayout<Sout::Len>>;
+            type Output = Tensor<Dynamic, Contiguous, Normal, T, Sout, A, &'a $( $mut_ )? [T], DynamicLayout<Sout::Len>>;
             fn $fn_name(&'a $( $mut_ )? self, runtime_shape: Index<Sout::Len>) -> Self::Output {
                 assert!(
                     Sout::runtime_compat(&runtime_shape),
@@ -816,7 +816,7 @@ dynamic_reshape_impl! { ReshapeDynamicMut reshape_dynamic_mut { mut } { DerefMut
 
 macro_rules! as_static_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, Y, Z, T, S, D, L, Sout> $trait_name<'a, Sout> for Tensor<Dynamic, Y, Z, T, S, D, L>
+        impl<'a, Y, Z, T, S, A, D, L, Sout> $trait_name<'a, Sout> for Tensor<Dynamic, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             Sout: StaticShape,
@@ -825,7 +825,7 @@ macro_rules! as_static_impl {
             D: $bound<Target = [T]>,
             L: Layout<Sout::Len>,
         {
-            type Output = Tensor<Static, Y, Z, T, Sout, &'a $( $mut_ )? [T], L>;
+            type Output = Tensor<Static, Y, Z, T, Sout, A, &'a $( $mut_ )? [T], L>;
             fn $fn_name(&'a $( $mut_ )? self) -> Self::Output {
                 let new_shape = Sout::to_vec();
                 let current_shape = Vec::from(self.shape());
@@ -849,14 +849,14 @@ as_static_impl! { AsStaticMut as_static_mut { mut } { DerefMut } }
 
 macro_rules! as_dynamic_impl {
     ($trait_name:ident $fn_name:ident {$($mut_:tt)?} {$bound:ident}) => {
-        impl<'a, Y, Z, T, S, D, L> $trait_name<'a> for Tensor<Static, Y, Z, T, S, D, L>
+        impl<'a, Y, Z, T, S, A, D, L> $trait_name<'a> for Tensor<Static, Y, Z, T, S, A, D, L>
         where
             T: 'static,
             S: Shape,
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<Dynamic, Y, Z, T, S, &'a $( $mut_ )? [T], L>;
+            type Output = Tensor<Dynamic, Y, Z, T, S, A, &'a $( $mut_ )? [T], L>;
             fn $fn_name(&'a $( $mut_ )? self) -> Self::Output {
                 Tensor {
                     data: & $( $mut_ )? self.data,

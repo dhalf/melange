@@ -43,7 +43,7 @@ use super::layout::Layout;
 use super::shape::{Shape, Same, TRUE};
 use crate::gat::{RefMutGat, StreamingIterator};
 use crate::algebra::Field;
-use crate::tensor::ToContiguous;
+use crate::tensor::alloc::AllocLike;
 
 macro_rules! assert_shape_eq {
     ($lhs:expr, $rhs:expr) => {
@@ -2445,24 +2445,24 @@ macro_rules! inplace_op_trait_impl_binary {
             };
         }
 
-        impl<Y, Z, $($generic,)? S, D, L, Yrhs, Zrhs, Drhs, Lrhs> $trait_name<&Tensor<Static, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? S, Drhs, Lrhs>> for Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<Y, Z, $($generic,)? S, A, D, L, Yrhs, Zrhs, Arhs, Drhs, Lrhs> $trait_name<&Tensor<Static, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? S, Arhs, Drhs, Lrhs>> for Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[$($generic)? $($scalar_type)?]>>,
-            for<'a> &'a Tensor<Static, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? S, Drhs, Lrhs>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Static, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? S, Arhs, Drhs, Lrhs>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
             $(T: $($bound+)* 'static,)?
             S: Shape,
             L: Layout<S::Len>,
             Lrhs: Layout<S::Len>,
         {  
-            fn $fn_name(&mut self, rhs: &Tensor<Static, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? S, Drhs, Lrhs>) {
+            fn $fn_name(&mut self, rhs: &Tensor<Static, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? S, Arhs, Drhs, Lrhs>) {
                 op_unchecked! { (self, rhs, $x, $y) => { $scalar_op } }
             }
         }
 
-        impl<Y, Z, $($generic,)? S, D, L, Yrhs, Zrhs, Srhs, Drhs, Lrhs> $trait_name<&Tensor<Dynamic, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? Srhs, Drhs, Lrhs>> for Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<Y, Z, $($generic,)? S, A, D, L, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs> $trait_name<&Tensor<Dynamic, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? Srhs, Arhs, Drhs, Lrhs>> for Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[$($generic)? $($scalar_type)?]>>,
-            for<'a> &'a Tensor<Dynamic, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? Srhs, Drhs, Lrhs>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Dynamic, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? Srhs, Arhs, Drhs, Lrhs>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
             $(T: $($bound+)* 'static,)?
             S: Shape + Same<Srhs>,
             <S as Same<Srhs>>::Output: TRUE,
@@ -2470,7 +2470,7 @@ macro_rules! inplace_op_trait_impl_binary {
             L: Layout<S::Len>,
             Lrhs: Layout<Srhs::Len>,
         {
-            fn $fn_name(&mut self, rhs: &Tensor<Dynamic, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? Srhs, Drhs, Lrhs>) {
+            fn $fn_name(&mut self, rhs: &Tensor<Dynamic, Yrhs, Zrhs, $($generic,)? $($scalar_type,)? Srhs, Arhs, Drhs, Lrhs>) {
                 assert_shape_eq!(self.shape().deref(), rhs.shape().deref());
                 op_unchecked! { (self, rhs, $x, $y) => { $scalar_op } }
             }
@@ -2525,7 +2525,7 @@ macro_rules! inplace_op_trait_impl_scalar {
         $trait_name:ident<$param_type:ty>; $fn_name:ident; $(where $generic:ident: $($bound:path),*;)? $(for $scalar_type:ty;)?
         ($x:ident, $rhs:ident) => {$scalar_op:stmt}
     ) => {
-        impl<X, Y, Z, $($generic,)? S, D, L> $trait_name<$param_type> for Tensor<X, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<X, Y, Z, $($generic,)? S, A, D, L> $trait_name<$param_type> for Tensor<X, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[$($generic)? $($scalar_type)?]>>,
             $(T: $($bound+)* 'static,)?
@@ -2605,7 +2605,7 @@ macro_rules! inplace_fn_trait_impl {
         $trait_name:ident; $fn_name:ident; $(where $generic:ident: $($bound:path),*;)? $(for $scalar_type:ty;)?
         ($x:ident) => {$scalar_op:stmt}
     ) => {
-        impl<X, Y, Z, $($generic,)? S, D, L> $trait_name for Tensor<X, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<X, Y, Z, $($generic,)? S, A, D, L> $trait_name for Tensor<X, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[$($generic)? $($scalar_type)?]>>,
             $(T: $($bound+)* 'static,)?
@@ -2701,7 +2701,7 @@ macro_rules! inplace_op_trait_impl_scalar2 {
         $trait_name:ident<$param_type0:ty, $param_type1:ty>; $fn_name:ident; $(where $generic:ident: $($bound:path),*;)? $(for $scalar_type:ty;)?
         ($x:ident, $rhs0:ident, $rhs1:ident) => {$scalar_op:stmt}
     ) => {
-        impl<X, Y, Z, $($generic,)? S, D, L> $trait_name<$param_type0, $param_type1> for Tensor<X, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<X, Y, Z, $($generic,)? S, A, D, L> $trait_name<$param_type0, $param_type1> for Tensor<X, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[$($generic)? $($scalar_type)?]>>,
             $(T: $($bound+)* 'static,)?
@@ -2743,11 +2743,11 @@ macro_rules! inplace_op_trait_impl_ternary {
             };
         }
 
-        impl<Y, Z, $($generic,)? S, D, L, Yrhs0, Zrhs0, Drhs0, Lrhs0, Yrhs1, Zrhs1, Drhs1, Lrhs1> $trait_name<&Tensor<Static, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? S, Drhs0, Lrhs0>, &Tensor<Static, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? S, Drhs1, Lrhs1>> for Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<Y, Z, $($generic,)? S, A, D, L, Yrhs0, Zrhs0, Arhs0, Drhs0, Lrhs0, Yrhs1, Zrhs1, Arhs1, Drhs1, Lrhs1> $trait_name<&Tensor<Static, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? S, Arhs0, Drhs0, Lrhs0>, &Tensor<Static, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? S, Arhs1, Drhs1, Lrhs1>> for Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[$($generic)? $($scalar_type)?]>>,
-            for<'a> &'a Tensor<Static, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? S, Drhs0, Lrhs0>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
-            for<'a> &'a Tensor<Static, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? S, Drhs1, Lrhs1>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Static, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? S, Arhs0, Drhs0, Lrhs0>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Static, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? S, Arhs1, Drhs1, Lrhs1>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
             $(T: $($bound+)* 'static,)?
             S: Shape,
             L: Layout<S::Len>,
@@ -2756,18 +2756,18 @@ macro_rules! inplace_op_trait_impl_ternary {
         {
             fn $fn_name(
                 &mut self,
-                rhs0: &Tensor<Static, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? S, Drhs0, Lrhs0>,
-                rhs1: &Tensor<Static, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? S, Drhs1, Lrhs1>,
+                rhs0: &Tensor<Static, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? S, Arhs0, Drhs0, Lrhs0>,
+                rhs1: &Tensor<Static, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? S, Arhs1, Drhs1, Lrhs1>,
             ) {
                 op_unchecked! { (self, rhs0, rhs1, $x, $y0, $y1) => { $scalar_op } }
             }
         }
 
-        impl<Y, Z, $($generic,)? S, D, L, Yrhs0, Zrhs0, Srhs0, Drhs0, Lrhs0, Yrhs1, Zrhs1, Srhs1, Drhs1, Lrhs1> $trait_name<&Tensor<Dynamic, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? Srhs0, Drhs0, Lrhs0>, &Tensor<Dynamic, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? Srhs1, Drhs1, Lrhs1>> for Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<Y, Z, $($generic,)? S, A, D, L, Yrhs0, Zrhs0, Srhs0, Arhs0, Drhs0, Lrhs0, Yrhs1, Zrhs1, Arhs1, Srhs1, Drhs1, Lrhs1> $trait_name<&Tensor<Dynamic, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? Srhs0, Arhs0, Drhs0, Lrhs0>, &Tensor<Dynamic, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? Srhs1, Arhs1, Drhs1, Lrhs1>> for Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[$($generic)? $($scalar_type)?]>>,
-            for<'a> &'a Tensor<Dynamic, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? Srhs0, Drhs0, Lrhs0>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
-            for<'a> &'a Tensor<Dynamic, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? Srhs1, Drhs1, Lrhs1>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Dynamic, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? Srhs0, Arhs0, Drhs0, Lrhs0>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Dynamic, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? Srhs1, Arhs1, Drhs1, Lrhs1>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
             S: Shape + Same<Srhs0> + Same<Srhs1>,
             <S as Same<Srhs0>>::Output: TRUE,
             <S as Same<Srhs1>>::Output: TRUE,
@@ -2779,8 +2779,8 @@ macro_rules! inplace_op_trait_impl_ternary {
         {
             fn $fn_name(
                 &mut self,
-                rhs0: &Tensor<Dynamic, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? Srhs0, Drhs0, Lrhs0>,
-                rhs1: &Tensor<Dynamic, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? Srhs1, Drhs1, Lrhs1>,
+                rhs0: &Tensor<Dynamic, Yrhs0, Zrhs0, $($generic,)? $($scalar_type,)? Srhs0, Arhs0, Drhs0, Lrhs0>,
+                rhs1: &Tensor<Dynamic, Yrhs1, Zrhs1, $($generic,)? $($scalar_type,)? Srhs1, Arhs1, Drhs1, Lrhs1>,
             ) {
                 assert_shape_eq!(self.shape().deref(), rhs0.shape().deref());
                 assert_shape_eq!(self.shape().deref(), rhs1.shape().deref());
@@ -2797,12 +2797,12 @@ macro_rules! op_trait_impl {
     (
         $trait_name:ident; $fn_name:ident; $inplace_trait_name:ident; $inplace_fn_name:ident
     ) => {
-        impl<'a, X, Y, Z, T, S, D, L, Rhs> $trait_name<Rhs> for &'a Tensor<X, Y, Z, T, S, D, L>
+        impl<'a, X, Y, Z, T, S, A, D, L, Rhs> $trait_name<Rhs> for &'a Tensor<X, Y, Z, T, S, A, D, L>
         where
-            Self: ToContiguous,
-            <Self as ToContiguous>::Output: $inplace_trait_name<Rhs>,
+            Tensor<X, Y, Z, T, S, A, D, L>: AllocLike,
+            <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc: $inplace_trait_name<Rhs>,
         {
-            type Output = <Self as ToContiguous>::Output;
+            type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc;
             fn $fn_name(
                 self,
                 rhs: Rhs,
@@ -2833,12 +2833,12 @@ macro_rules! fn_trait_impl {
     (
         $trait_name:ident; $fn_name:ident; $inplace_trait_name:ident; $inplace_fn_name:ident
     ) => {
-        impl<'a, X, Y, Z, T, S, D, L> $trait_name for &'a Tensor<X, Y, Z, T, S, D, L>
+        impl<'a, X, Y, Z, T, S, A, D, L> $trait_name for &'a Tensor<X, Y, Z, T, S, A, D, L>
         where
-            Self: ToContiguous,
-            <Self as ToContiguous>::Output: $inplace_trait_name,
+            Tensor<X, Y, Z, T, S, A, D, L>: AllocLike,
+            <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc: $inplace_trait_name,
         {
-            type Output = <Self as ToContiguous>::Output;
+            type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc;
             fn $fn_name(self) -> Self::Output {
                 let mut out = self.to_contiguous();
                 out.$inplace_fn_name();
@@ -2884,12 +2884,12 @@ macro_rules! op2_trait_impl {
     (
         $trait_name:ident; $fn_name:ident; $inplace_trait_name:ident; $inplace_fn_name:ident
     ) => {
-        impl<'a, X, Y, Z, T, S, D, L, Rhs0, Rhs1> $trait_name<Rhs0, Rhs1> for &'a Tensor<X, Y, Z, T, S, D, L>
+        impl<'a, X, Y, Z, T, S, A, D, L, Rhs0, Rhs1> $trait_name<Rhs0, Rhs1> for &'a Tensor<X, Y, Z, T, S, A, D, L>
         where
-            Self: ToContiguous,
-            <Self as ToContiguous>::Output: $inplace_trait_name<Rhs0, Rhs1>,
-        {
-            type Output = <Self as ToContiguous>::Output;
+            Tensor<X, Y, Z, T, S, A, D, L>: AllocLike,
+            <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc: $inplace_trait_name<Rhs0, Rhs1>,
+    {
+        type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc;
             fn $fn_name(
                 self,
                 rhs0: Rhs0,

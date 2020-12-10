@@ -4,6 +4,7 @@
 //! shapes checked at compile time) tensors.
 
 #![warn(missing_docs)]
+#![allow(type_alias_bounds)]
 
 #[cfg(test)]
 mod tests {
@@ -115,6 +116,26 @@ mod tests {
         let c: StaticTensor<f64, Shape1D<U2>> = Tensor::try_from(vec![1.0, 1.0]).unwrap();
         let d: StaticTensor<f64, Shape1D<U2>> = Tensor::try_from(vec![1.0, 2.0]).unwrap();
         assert!(a.dot_add(&b, &c).sub(&d) < f64::EPSILON);
+    }
+
+    #[test]
+    fn backprop() {
+        use crate::backprop::variable::Variable;
+        use crate::backprop::variable::New;
+
+        let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 0, 0, 1]).unwrap();
+        let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 1, 1, 1]).unwrap();
+
+        let g: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 1, 1, 1]).unwrap();
+
+        let a = Variable::new(a, true);
+        let b = Variable::new(b, true);
+
+        let c = Variable::clone(&a) + b;
+        c.backward(g);
+
+        let d: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 1, 1, 1]).unwrap();
+        assert_eq!(a.grad().unwrap(), d);
     }
 }
 

@@ -32,10 +32,7 @@ use layout::{StaticLayout, DynamicLayout};
 use shape::Shape;
 
 #[doc(inline)]
-pub use tensor::{Tensor, Static, Contiguous, Normal, Dynamic, Strided, Transposed};
-
-#[doc(inline)]
-pub use tensor::convert::ToContiguous;
+pub use tensor::{Tensor, Static, Contiguous, Normal, Dynamic, Strided, Transposed, AsRawSlice, AsRawSliceMut};
 
 pub mod index;
 pub mod layout;
@@ -52,8 +49,13 @@ pub mod linear_algebra;
 #[doc(inplace)]
 pub use tensor::view;
 
+#[doc(inplace)]
+pub use tensor::alloc;
+
+use alloc::DefaultAllocator;
+
 /// Type alias for static, contiguous, non-transposed, heap-stored tensors.
-pub type StaticTensor<T, S> = Tensor<Static, Contiguous, Normal, T, S, Vec<T>, StaticLayout<S>>;
+pub type StaticTensor<T, S> = Tensor<Static, Contiguous, Normal, T, S, DefaultAllocator, Vec<T>, StaticLayout<S>>;
 
 /// Type alias for dynamic, contiguous, non-transposed, heap-stored tensors.
-pub type DynamicTensor<T, S> = Tensor<Dynamic, Contiguous, Normal, T, S, Vec<T>, DynamicLayout<<S as Shape>::Len>>;
+pub type DynamicTensor<T, S> = Tensor<Dynamic, Contiguous, Normal, T, S, DefaultAllocator, Vec<T>, DynamicLayout<<S as Shape>::Len>>;

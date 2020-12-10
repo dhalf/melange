@@ -14,17 +14,20 @@
 //! Similarly to `core_ops`, `reductions` also rely on "chunks loops"
 //! to optimize computation time.
 
-use super::{Tensor, Static, Dynamic, Contiguous, Normal};
-use super::layout::{DynamicLayout, StaticLayout};
+use super::{Tensor, Static, Dynamic, Strided};
 use crate::algebra::Ring;
-use super::strided_iterator::StridedIterator;
-use super::layout::Layout;
+use super::layout::{Layout, DynamicLayout};
 use super::shape::{StaticShape, Shape, BroadcastShape, PartialCopy, Same, TRUE};
 use super::view::{BroadcastMut, BroadcastDynamicMut};
 use super::core_ops::{Add_, Mul_, Max_, Min_};
 use std::ops::{AddAssign, MulAssign};
 use super::index::Index;
 use std::convert::TryFrom;
+use super::alloc::{StaticAlloc, DynamicAlloc};
+use super::strided_iterator::StridedIterator;
+
+type BroadcastMutView<'a, Z, T, Sout: Shape, A> = Tensor<Static, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
+type BroadcastDynamicMutView<'a, Z, T, Sout: Shape, A> = Tensor<Dynamic, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
 
 /// Summation allong chosen axes of a static tensor.
 ///
@@ -120,40 +123,44 @@ pub trait MinReduce<Sout> {
 
 macro_rules! reduction_impl {
     (
-        $trait_name:ident; $fn_name:ident; $reduction_op:ident; $init_value:expr $(;where $generic:ident: $($bound:path),*)? $(;for $scalar_type:ty)?
+        $trait_name:ident; $fn_name:ident; $reduction_trait:ident; $reduction_op:ident; $init_value:expr $(;where $generic:ident: $($bound:path),*)? $(;for $scalar_type:ty)?
     ) => {
-        impl<Y, Z, $($generic,)? S, D, L, Sout> $trait_name<Sout> for &Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<Y, Z, $($generic,)? S, A, D, L, Sout> $trait_name<Sout> for &Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             $(T: $($bound+)* Copy + 'static,)?
-            S: StaticShape,
+            S: StaticShape + Clone,
             Sout: StaticShape + Clone + BroadcastShape<S>,
+            A: StaticAlloc<$($generic,)? $($scalar_type,)? Sout>,
+            for<'a> A::Alloc: BroadcastMut<'a, S, Output=BroadcastMutView<'a, Z, $($generic,)? $($scalar_type,)? S, A>>,
             L: Layout<S::Len>,
-            for<'a> &'a Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
         {
-            type Output = Tensor<Static, Contiguous, Normal, $($generic,)? $($scalar_type,)? Sout, Vec<$($generic)? $($scalar_type)?>, StaticLayout<Sout>>;
+            type Output = A::Alloc;
             fn $fn_name(self) -> Self::Output {
-                let mut out: Self::Output = Tensor::fill($init_value);
+                let mut out = A::fill($init_value);
                 out.broadcast_mut().$reduction_op(self);
-
+                
                 out
             }
         }
 
-        impl<Y, Z, $($generic,)? S, D, L, Sout> $trait_name<Sout> for &Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>
+        impl<Y, Z, $($generic,)? S, A, D, L, Sout> $trait_name<Sout> for &Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
         where
             $(T: $($bound+)* Copy + 'static,)?
             S: Shape + Same<S>,
             <S as Same<S>>::Output: TRUE,
             Sout: PartialCopy + Clone + BroadcastShape<S>,
+            A: DynamicAlloc<$($generic,)? $($scalar_type,)? Sout>,
+            for<'a> A::Alloc: BroadcastDynamicMut<'a, S, Output=BroadcastDynamicMutView<'a, Z, $($generic,)? $($scalar_type,)? S, A>>,
             L: Layout<S::Len>,
-            for<'a> &'a Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, D, L>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
         {
-            type Output = Tensor<Dynamic, Contiguous, Normal, $($generic,)? $($scalar_type,)? Sout, Vec<$($generic)? $($scalar_type)?>, DynamicLayout<Sout::Len>>;
+            type Output = A::Alloc;
             fn $fn_name(self) -> Self::Output {
                 let mut output_shape = Vec::from(self.shape());
                 Sout::partial_copy(&mut output_shape);
 
-                let mut out: Self::Output = Tensor::fill_dynamic(Index::try_from(output_shape).unwrap(), $init_value);
+                let mut out: Self::Output = A::fill(Index::try_from(output_shape).unwrap(), $init_value);
                 out.broadcast_dynamic_mut(self.shape()).$reduction_op(self);
 
                 out
@@ -162,9 +169,9 @@ macro_rules! reduction_impl {
     };
 }
 
-reduction_impl! { Sum; sum; add_; T::ZERO; where T: AddAssign, Ring }
-reduction_impl! { Prod; prod; mul_; T::ONE; where T: MulAssign, Ring }
-reduction_impl! { MaxReduce; max_reduce; max_; f64::NEG_INFINITY; for f64 }
-reduction_impl! { MaxReduce; max_reduce; max_; f32::NEG_INFINITY; for f32 }
-reduction_impl! { MinReduce; min_reduce; min_; f64::INFINITY; for f64 }
-reduction_impl! { MinReduce; min_reduce; min_; f32::INFINITY; for f32 }
+reduction_impl! { Sum; sum; Add_; add_; T::ZERO; where T: AddAssign, Ring }
+reduction_impl! { Prod; prod; Mul_; mul_; T::ONE; where T: MulAssign, Ring }
+reduction_impl! { MaxReduce; max_reduce; Max_; max_; f64::NEG_INFINITY; for f64 }
+reduction_impl! { MaxReduce; max_reduce; Max_; max_; f32::NEG_INFINITY; for f32 }
+reduction_impl! { MinReduce; min_reduce; Min_; min_; f64::INFINITY; for f64 }
+reduction_impl! { MinReduce; min_reduce; Min_; min_; f32::INFINITY; for f32 }

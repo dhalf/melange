@@ -7,7 +7,6 @@ use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
 use crate::algebra::Ring;
-use crate::tensor::layout::{StaticLayout, DynamicLayout};
 
 /// Create a new variable that retains its gradient if require_grad is true
 /// by moving the given tensor.
@@ -96,47 +95,17 @@ where
     }
 }
 
-impl<Y, Z, T, S, D, L, B> New<Tensor<Static, Y, Z, T, S, D, L>>
-    for Variable<
-        Tensor<Static, Y, Z, T, S, D, L>,
-        Tensor<Static, Contiguous, Normal, T, S, Vec<T>, StaticLayout<S>>,
-        B,
-    >
+impl<V, B> New<V> for Variable<V, V::Alloc, B>
 where
-    T: Ring + Copy,
-    S: StaticShape,
+    V: AllocLike,
+    V::Scalar: Ring,
 {
-    fn new(tensor: Tensor<Static, Y, Z, T, S, D, L>, require_grad: bool) -> Self {
+    fn new(tensor: V, require_grad: bool) -> Self {
+        let grad = tensor.fill_like(V::Scalar::ZERO);
         Variable(Rc::new(InternalVariable {
             value: tensor,
             grad: RefCell::new(if require_grad {
-                Some(Tensor::fill(T::ZERO))
-            } else {
-                None
-            }),
-            backward_op_name: "no_op",
-            backward_closure: Box::new(|_grad| ()),
-        }))
-    }
-}
-
-impl<Y, Z, T, S, D, L, B> New<Tensor<Dynamic, Y, Z, T, S, D, L>>
-    for Variable<
-        Tensor<Dynamic, Y, Z, T, S, D, L>,
-        Tensor<Dynamic, Contiguous, Normal, T, S, Vec<T>, DynamicLayout<S::Len>>,
-        B,
-    >
-where
-    T: Ring + Copy,
-    S: Shape,
-    L: Layout<S::Len>,
-{
-    fn new(tensor: Tensor<Dynamic, Y, Z, T, S, D, L>, require_grad: bool) -> Self {
-        let shape = tensor.shape();
-        Variable(Rc::new(InternalVariable {
-            value: tensor,
-            grad: RefCell::new(if require_grad {
-                Some(Tensor::fill_dynamic(shape, T::ZERO))
+                Some(grad)
             } else {
                 None
             }),

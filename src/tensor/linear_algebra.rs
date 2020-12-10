@@ -9,7 +9,7 @@
 extern crate cblas;
 extern crate openblas_src;
 
-use super::layout::{Layout, StaticLayout, DynamicLayout};
+use super::layout::Layout;
 use super::shape::{Shape1D, Shape2D, TRUE, StaticDim, Dim, StaticShape};
 use super::tensor::{Tensor, Static, Dynamic, Contiguous, Normal, Transposed};
 use cblas::{ddot, dgemm, dgemv, sdot, sgemm, sgemv, Transpose};
@@ -17,6 +17,8 @@ use typenum::{Eq, IsEqual, Unsigned, U2, U1};
 use std::ops::{Deref, DerefMut};
 use super::index::Index;
 use std::convert::TryFrom;
+use super::alloc::{StaticAlloc, DynamicAlloc};
+use super::{AsRawSlice, AsRawSliceMut};
 
 /// Defines the constant that should be passed to BLAS operations.
 pub trait BLASTranspose {
@@ -166,7 +168,7 @@ pub trait DotAdd<Rhs0, Rhs1> {
 
 macro_rules! mmdot_impl {
     ($t:ty; $blas_fn:ident) => {
-        impl<Z, M, K, D, L, Zrhs, N, Drhs, Lrhs> Dot<&Tensor<Static, Contiguous, Zrhs, $t, Shape2D<K, N>, Drhs, Lrhs>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, K>, D, L>
+        impl<Z, M, K, A, D, L, Zrhs, N, Arhs, Drhs, Lrhs> Dot<&Tensor<Static, Contiguous, Zrhs, $t, Shape2D<K, N>, Arhs, Drhs, Lrhs>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, K>, A,  D, L>
         where
             Z: BLASTranspose,
             Zrhs: BLASTranspose,
@@ -174,18 +176,20 @@ macro_rules! mmdot_impl {
             N: StaticDim,
             K: StaticDim,
             Shape2D<M, N>: StaticShape,
+            A: StaticAlloc<$t, Shape2D<M, N>>,
+            A::Alloc: AsRawSliceMut<$t>,
             D: Deref<Target=[$t]>,
             Drhs: Deref<Target=[$t]>,
             L: Layout<U2>,
             Lrhs: Layout<U2>,
         {
-            type Output = Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Vec<$t>, StaticLayout<Shape2D<M, N>>>;
+            type Output = A::Alloc;
             
             fn dot(
                 self,
-                other: &Tensor<Static, Contiguous, Zrhs, $t, Shape2D<K, N>, Drhs, Lrhs>,
+                other: &Tensor<Static, Contiguous, Zrhs, $t, Shape2D<K, N>, Arhs, Drhs, Lrhs>,
             ) -> Self::Output {
-                let mut out: Self::Output = Tensor::fill(0.0);
+                let mut out = A::fill(0.0);
 
                 unsafe {
                     $blas_fn(
@@ -210,7 +214,7 @@ macro_rules! mmdot_impl {
             }
         }
 
-        impl<Z, M, K, D, L, Zrhs, Krhs, N, Drhs, Lrhs> Dot<&Tensor<Dynamic, Contiguous, Zrhs, $t, Shape2D<Krhs, N>, Drhs, Lrhs>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, K>, D, L>
+        impl<Z, M, K, A, D, L, Zrhs, Krhs, N, Arhs, Drhs, Lrhs> Dot<&Tensor<Dynamic, Contiguous, Zrhs, $t, Shape2D<Krhs, N>, Arhs, Drhs, Lrhs>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, K>, A, D, L>
         where
             Z: BLASTranspose,
             Zrhs: BLASTranspose,
@@ -218,16 +222,18 @@ macro_rules! mmdot_impl {
             N: Dim,
             K: IsEqual<Krhs>,
             Eq<K, Krhs>: TRUE,
+            A: DynamicAlloc<$t, Shape2D<M, N>>,
+            A::Alloc: AsRawSliceMut<$t>,
             D: Deref<Target=[$t]>,
             Drhs: Deref<Target=[$t]>,
             L: Layout<U2>,
             Lrhs: Layout<U2>,
         {
-            type Output = Tensor<Dynamic, Contiguous, Normal, $t, Shape2D<M, N>, Vec<$t>, DynamicLayout<U2>>;
+            type Output = A::Alloc;
             
             fn dot(
                 self,
-                other: &Tensor<Dynamic, Contiguous, Zrhs, $t, Shape2D<Krhs, N>, Drhs, Lrhs>,
+                other: &Tensor<Dynamic, Contiguous, Zrhs, $t, Shape2D<Krhs, N>, Arhs, Drhs, Lrhs>,
             ) -> Self::Output {
                 let self_shape = self.shape();
                 let other_shape = other.shape();
@@ -237,7 +243,7 @@ macro_rules! mmdot_impl {
                     self_shape[1], other_shape[0], self_shape, other_shape,
                 );
 
-                let mut out: Self::Output = Tensor::fill_dynamic(Index::try_from(vec![self_shape[0], other_shape[1]]).unwrap(), 0.0);
+                let mut out = A::fill(Index::try_from(vec![self_shape[0], other_shape[1]]).unwrap(), 0.0);
 
                 unsafe {
                     $blas_fn(
@@ -269,24 +275,26 @@ mmdot_impl! { f32; sgemm }
 
 macro_rules! mvdot_impl {
     ($t:ty; $blas_fn:ident) => {
-        impl<Z, M, N, D, L, Zrhs, Drhs, Lrhs> Dot<&Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Drhs, Lrhs>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, N>, D, L>
+        impl<Z, M, N, A, D, L, Zrhs, Arhs, Drhs, Lrhs> Dot<&Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Arhs, Drhs, Lrhs>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, N>, A, D, L>
         where
             Z: BLASTranspose,
             M: StaticDim,
             N: StaticDim,
             Shape1D<M>: StaticShape,
+            A: StaticAlloc<$t, Shape1D<M>>,
+            A::Alloc: AsRawSliceMut<$t>,
             D: Deref<Target=[$t]>,
             Drhs: Deref<Target=[$t]>,
             L: Layout<U2>,
             Lrhs: Layout<U1>,
         {
-            type Output = Tensor<Static, Contiguous, Normal, $t, Shape1D<M>, Vec<$t>, StaticLayout<Shape1D<M>>>;
+            type Output = A::Alloc;
 
             fn dot(
                 self,
-                other: &Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Drhs, Lrhs>,
+                other: &Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Arhs, Drhs, Lrhs>,
             ) -> Self::Output {
-                let mut out: Self::Output = Tensor::fill(0.0);
+                let mut out: Self::Output = A::fill(0.0);
 
                 unsafe {
                     $blas_fn(
@@ -309,22 +317,24 @@ macro_rules! mvdot_impl {
             }
         }
 
-        impl<Z, M, N, D, L, Zrhs, Nrhs, Drhs, Lrhs> Dot<&Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Drhs, Lrhs>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, N>, D, L>
+        impl<Z, M, N, A, D, L, Zrhs, Nrhs, Arhs, Drhs, Lrhs> Dot<&Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Arhs, Drhs, Lrhs>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, N>, A, D, L>
         where
             Z: BLASTranspose,
             M: Dim,
             N: IsEqual<Nrhs>,
             Eq<N, Nrhs>: TRUE,
+            A: DynamicAlloc<$t, Shape1D<M>>,
+            A::Alloc: AsRawSliceMut<$t>,
             D: Deref<Target=[$t]>,
             Drhs: Deref<Target=[$t]>,
             L: Layout<U2>,
             Lrhs: Layout<U1>,
         {
-            type Output = Tensor<Dynamic, Contiguous, Normal, $t, Shape1D<M>, Vec<$t>, DynamicLayout<U1>>;
+            type Output = A::Alloc;
 
             fn dot(
                 self,
-                other: &Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Drhs, Lrhs>,
+                other: &Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Arhs, Drhs, Lrhs>,
             ) -> Self::Output {
                 let self_shape = self.shape();
                 let other_shape = other.shape();
@@ -334,7 +344,7 @@ macro_rules! mvdot_impl {
                     self_shape[1], other_shape[0], self_shape, other_shape,
                 );
 
-                let mut out: Self::Output = Tensor::fill_dynamic(Index::try_from(vec![self_shape[0]]).unwrap(), 0.0);
+                let mut out: Self::Output = A::fill(Index::try_from(vec![self_shape[0]]).unwrap(), 0.0);
 
                 unsafe {
                     $blas_fn(
@@ -364,7 +374,7 @@ mvdot_impl! { f32; sgemv }
 
 macro_rules! vvdot_impl {
     ($t:ty; $blas_fn:ident) => {
-        impl<Z, N, D, L, Zrhs, Drhs, Lrhs> Dot<&Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Drhs, Lrhs>> for &Tensor<Static, Contiguous, Z, $t, Shape1D<N>, D, L>
+        impl<Z, N, A, D, L, Zrhs, Arhs, Drhs, Lrhs> Dot<&Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Arhs, Drhs, Lrhs>> for &Tensor<Static, Contiguous, Z, $t, Shape1D<N>, A, D, L>
         where
             Z: BLASTranspose,
             N: Unsigned,
@@ -375,12 +385,12 @@ macro_rules! vvdot_impl {
         {
             type Output = $t;
 
-            fn dot(self, other: &Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Drhs, Lrhs>) -> $t {
+            fn dot(self, other: &Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Arhs, Drhs, Lrhs>) -> $t {
                 unsafe { $blas_fn(N::I32, self.as_raw_slice(), 1, other.as_raw_slice(), 1) }
             }
         }
 
-        impl<Z, N, D, L, Zrhs, Nrhs, Drhs, Lrhs> Dot<&Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Drhs, Lrhs>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape1D<N>, D, L>
+        impl<Z, N, A, D, L, Zrhs, Nrhs, Arhs, Drhs, Lrhs> Dot<&Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Arhs, Drhs, Lrhs>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape1D<N>, A, D, L>
         where
             Z: BLASTranspose,
             N: IsEqual<Nrhs>,
@@ -392,7 +402,7 @@ macro_rules! vvdot_impl {
         {
             type Output = $t;
             
-            fn dot(self, other: &Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Drhs, Lrhs>) -> $t {
+            fn dot(self, other: &Tensor<Dynamic, Contiguous, Zrhs, $t, Shape1D<Nrhs>, Arhs, Drhs, Lrhs>) -> $t {
                 let self_shape = self.shape();
                 let other_shape = other.shape();
                 assert_eq!(
@@ -412,7 +422,7 @@ vvdot_impl! { f32; sdot }
 
 macro_rules! mmdot_add_impl {
     ($t:ty; $blas_fn:ident) => {
-        impl<Z, M, K, D, L, Zrhs0, N, Drhs0, Lrhs0, Drhs1, Lrhs1> DotAdd<&Tensor<Static, Contiguous, Zrhs0, $t, Shape2D<K, N>, Drhs0, Lrhs0>, &Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Drhs1, Lrhs1>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, K>, D, L>
+        impl<Z, M, K, A, D, L, Zrhs0, N, Arhs0, Drhs0, Lrhs0, Arhs1, Drhs1, Lrhs1> DotAdd<&Tensor<Static, Contiguous, Zrhs0, $t, Shape2D<K, N>, Arhs0, Drhs0, Lrhs0>, &Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Arhs1, Drhs1, Lrhs1>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, K>, A, D, L>
         where
             Z: BLASTranspose,
             Zrhs0: BLASTranspose,
@@ -427,12 +437,12 @@ macro_rules! mmdot_add_impl {
             Lrhs0: Layout<U2>,
             Lrhs1: Clone,
         {
-            type Output = Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Drhs1, Lrhs1>;
+            type Output = Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Arhs1, Drhs1, Lrhs1>;
             
             fn dot_add(
                 self,
-                rhs0: &Tensor<Static, Contiguous, Zrhs0, $t, Shape2D<K, N>, Drhs0, Lrhs0>,
-                rhs1: &Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Drhs1, Lrhs1>,
+                rhs0: &Tensor<Static, Contiguous, Zrhs0, $t, Shape2D<K, N>, Arhs0, Drhs0, Lrhs0>,
+                rhs1: &Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Arhs1, Drhs1, Lrhs1>,
             ) -> Self::Output {
                 let mut out: Self::Output = (*rhs1).clone();
 
@@ -459,7 +469,7 @@ macro_rules! mmdot_add_impl {
             }
         }
 
-        impl<Z, M, K, D, L, Zrhs0, Krhs, N, Drhs0, Lrhs0, Drhs1, Lrhs1> DotAdd<&Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape2D<Krhs, N>, Drhs0, Lrhs0>, &Tensor<Dynamic, Contiguous, Normal, $t, Shape2D<M, N>, Drhs1, Lrhs1>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, K>, D, L>
+        impl<Z, M, K, A, D, L, Zrhs0, Krhs, N, Arhs0, Drhs0, Lrhs0, Arhs1, Drhs1, Lrhs1> DotAdd<&Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape2D<Krhs, N>, Arhs0, Drhs0, Lrhs0>, &Tensor<Dynamic, Contiguous, Normal, $t, Shape2D<M, N>, Arhs1, Drhs1, Lrhs1>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, K>, A, D, L>
         where
             Z: BLASTranspose,
             Zrhs0: BLASTranspose,
@@ -474,12 +484,12 @@ macro_rules! mmdot_add_impl {
             Lrhs0: Layout<U2>,
             Lrhs1: Layout<U2> + Clone,
         {
-            type Output = Tensor<Dynamic, Contiguous, Normal, $t, Shape2D<M, N>, Drhs1, Lrhs1>;
+            type Output = Tensor<Dynamic, Contiguous, Normal, $t, Shape2D<M, N>, Arhs1, Drhs1, Lrhs1>;
             
             fn dot_add(
                 self,
-                rhs0: &Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape2D<Krhs, N>, Drhs0, Lrhs0>,
-                rhs1: &Tensor<Dynamic, Contiguous, Normal, $t, Shape2D<M, N>, Drhs1, Lrhs1>,
+                rhs0: &Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape2D<Krhs, N>, Arhs0, Drhs0, Lrhs0>,
+                rhs1: &Tensor<Dynamic, Contiguous, Normal, $t, Shape2D<M, N>, Arhs1, Drhs1, Lrhs1>,
             ) -> Self::Output {
                 let self_shape = self.shape();
                 let rhs0_shape = rhs0.shape();
@@ -527,7 +537,7 @@ mmdot_add_impl! { f32; sgemm }
 
 macro_rules! mvdot_add_impl {
     ($t:ty; $blas_fn:ident) => {
-        impl<Z, M, N, D, L, Zrhs0, Drhs0, Lrhs0, Drhs1, Lrhs1> DotAdd<&Tensor<Static, Contiguous, Zrhs0, $t, Shape1D<N>, Drhs0, Lrhs0>, &Tensor<Static, Contiguous, Normal, $t, Shape1D<M>, Drhs1, Lrhs1>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, N>, D, L>
+        impl<Z, M, N, A, D, L, Zrhs0, Arhs0, Drhs0, Lrhs0, Arhs1, Drhs1, Lrhs1> DotAdd<&Tensor<Static, Contiguous, Zrhs0, $t, Shape1D<N>, Arhs0, Drhs0, Lrhs0>, &Tensor<Static, Contiguous, Normal, $t, Shape1D<M>, Arhs1, Drhs1, Lrhs1>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, N>, A, D, L>
         where
             Z: BLASTranspose,
             M: StaticDim,
@@ -540,12 +550,12 @@ macro_rules! mvdot_add_impl {
             Lrhs0: Layout<U1>,
             Lrhs1: Clone,
         {
-            type Output = Tensor<Static, Contiguous, Normal, $t, Shape1D<M>, Drhs1, Lrhs1>;
+            type Output = Tensor<Static, Contiguous, Normal, $t, Shape1D<M>, Arhs1, Drhs1, Lrhs1>;
 
             fn dot_add(
                 self,
-                rhs0: &Tensor<Static, Contiguous, Zrhs0, $t, Shape1D<N>, Drhs0, Lrhs0>,
-                rhs1: &Tensor<Static, Contiguous, Normal, $t, Shape1D<M>, Drhs1, Lrhs1>,
+                rhs0: &Tensor<Static, Contiguous, Zrhs0, $t, Shape1D<N>, Arhs0, Drhs0, Lrhs0>,
+                rhs1: &Tensor<Static, Contiguous, Normal, $t, Shape1D<M>, Arhs1, Drhs1, Lrhs1>,
             ) -> Self::Output {
                 let mut out: Self::Output = (*rhs1).clone();
 
@@ -570,7 +580,7 @@ macro_rules! mvdot_add_impl {
             }
         }
 
-        impl<Z, M, N, D, L, Zrhs0, Nrhs, Drhs0, Lrhs0, Drhs1, Lrhs1> DotAdd<&Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape1D<Nrhs>, Drhs0, Lrhs0>, &Tensor<Dynamic, Contiguous, Normal, $t, Shape1D<M>, Drhs1, Lrhs1>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, N>, D, L>
+        impl<Z, M, N, A, D, L, Zrhs0, Nrhs, Arhs0, Drhs0, Lrhs0, Arhs1, Drhs1, Lrhs1> DotAdd<&Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape1D<Nrhs>, Arhs0, Drhs0, Lrhs0>, &Tensor<Dynamic, Contiguous, Normal, $t, Shape1D<M>, Arhs1, Drhs1, Lrhs1>> for &Tensor<Dynamic, Contiguous, Z, $t, Shape2D<M, N>, A, D, L>
         where
             Z: BLASTranspose,
             M: Dim,
@@ -583,12 +593,12 @@ macro_rules! mvdot_add_impl {
             Lrhs0: Layout<U1>,
             Lrhs1: Layout<U1> + Clone,
         {
-            type Output = Tensor<Dynamic, Contiguous, Normal, $t, Shape1D<M>, Drhs1, Lrhs1>;
+            type Output = Tensor<Dynamic, Contiguous, Normal, $t, Shape1D<M>, Arhs1, Drhs1, Lrhs1>;
 
             fn dot_add(
                 self,
-                rhs0: &Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape1D<Nrhs>, Drhs0, Lrhs0>,
-                rhs1: &Tensor<Dynamic, Contiguous, Normal, $t, Shape1D<M>, Drhs1, Lrhs1>,
+                rhs0: &Tensor<Dynamic, Contiguous, Zrhs0, $t, Shape1D<Nrhs>, Arhs0, Drhs0, Lrhs0>,
+                rhs1: &Tensor<Dynamic, Contiguous, Normal, $t, Shape1D<M>, Arhs1, Drhs1, Lrhs1>,
             ) -> Self::Output {
                 let self_shape = self.shape();
                 let rhs0_shape = rhs0.shape();
