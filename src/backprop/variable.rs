@@ -6,14 +6,14 @@ use std::cell::RefCell;
 use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
-use crate::algebra::Ring;
+use std::marker::PhantomData;
 
 /// Create a new variable that retains its gradient if require_grad is true
 /// by moving the given tensor.
-pub trait New<T> {
+pub trait New<V> {
     /// Wraps `tensor` inside a variable that retains its grad
     /// if `require_grad` is true.
-    fn new(tensor: T, require_grad: bool) -> Self;
+    fn new(tensor: V, require_grad: bool) -> Self;
 }
 
 /// Groups the value, "interior-mutable" gradient option
@@ -45,11 +45,12 @@ where
 /// Core type of `backprop` module that represents a node in the computation
 /// graph. It contains a combination of `Rc` and `RefCell` to allow
 /// mutable reference counting of the actual `BackpropNode`s.
-pub struct Variable<V, G, B>(
+pub struct Variable<T, V, G, B>(
     pub(super) Rc<InternalVariable<V, G, B>>,
+    pub(super) PhantomData<T>,
 );
 
-impl<V, G, B> fmt::Debug for Variable<V, G, B>
+impl<T, V, G, B> fmt::Debug for Variable<T, V, G, B>
 where
     V: fmt::Debug,
     G: fmt::Debug,
@@ -60,7 +61,7 @@ where
     }
 }
 
-impl<V, G, B> Deref for Variable<V, G, B>
+impl<T, V, G, B> Deref for Variable<T, V, G, B>
 {
     type Target = Rc<InternalVariable<V, G, B>>;
     fn deref(&self) -> &Self::Target {
@@ -68,7 +69,7 @@ impl<V, G, B> Deref for Variable<V, G, B>
     }
 }
 
-impl<V, G, B> Variable<V, G, B>
+impl<T, V, G, B> Variable<T, V, G, B>
 where
     G: Clone,
 {
@@ -78,7 +79,7 @@ where
     }
 }
 
-impl<V, G, B> Variable<V, G, B>
+impl<T, V, G, B> Variable<T, V, G, B>
 where
     G: for<'a> Add_<&'a B>,
 {
@@ -95,29 +96,34 @@ where
     }
 }
 
-impl<V, B> New<V> for Variable<V, V::Alloc, B>
-where
-    V: AllocLike,
-    V::Scalar: Ring,
-{
-    fn new(tensor: V, require_grad: bool) -> Self {
-        let grad = tensor.fill_like(V::Scalar::ZERO);
-        Variable(Rc::new(InternalVariable {
-            value: tensor,
-            grad: RefCell::new(if require_grad {
-                Some(grad)
-            } else {
-                None
-            }),
-            backward_op_name: "no_op",
-            backward_closure: Box::new(|_grad| ()),
-        }))
-    }
+macro_rules! new_impl {
+    ($($t:ty)*) => {$(
+        impl<V, B> New<V> for Variable<$t, V, V::Alloc, B>
+        where
+            V: AllocLike<Scalar = $t>,
+        {
+            fn new(tensor: V, require_grad: bool) -> Self {
+                let grad = tensor.fill_like(0.0);
+                Variable(Rc::new(InternalVariable {
+                    value: tensor,
+                    grad: RefCell::new(if require_grad {
+                        Some(grad)
+                    } else {
+                        None
+                    }),
+                    backward_op_name: "no_op",
+                    backward_closure: Box::new(|_grad| ()),
+                }), PhantomData)
+            }
+        }
+    )*};
 }
 
-impl<V, G, B> Clone for Variable<V, G, B>
+new_impl! { f64 f32 }
+
+impl<T, V, G, B> Clone for Variable<T, V, G, B>
 {
     fn clone(&self) -> Self {
-        Variable(Rc::clone(&self.0))
+        Variable(Rc::clone(&self.0), PhantomData)
     }
 }

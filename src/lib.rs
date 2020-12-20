@@ -123,10 +123,10 @@ mod tests {
         use crate::backprop::variable::Variable;
         use crate::backprop::variable::New;
 
-        let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 0, 0, 1]).unwrap();
-        let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 1, 1, 1]).unwrap();
+        let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
 
-        let g: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 1, 1, 1]).unwrap();
+        let g: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
 
         let a = Variable::new(a, true);
         let b = Variable::new(b, true);
@@ -134,13 +134,13 @@ mod tests {
         let c = Variable::clone(&a) + b;
         c.backward(g);
 
-        let d: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 1, 1, 1]).unwrap();
+        let d: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
         assert_eq!(a.grad().unwrap(), d);
     }
 }
 
-pub mod algebra;
 pub mod gat;
 pub mod prelude;
 pub mod tensor;
 pub mod backprop;
+pub mod algebra;

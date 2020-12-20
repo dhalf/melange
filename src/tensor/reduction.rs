@@ -15,7 +15,6 @@
 //! to optimize computation time.
 
 use super::{Tensor, Static, Dynamic, Strided};
-use crate::algebra::Ring;
 use super::layout::{Layout, DynamicLayout};
 use super::shape::{StaticShape, Shape, BroadcastShape, PartialCopy, Same, TRUE};
 use super::view::{BroadcastMut, BroadcastDynamicMut};
@@ -28,6 +27,43 @@ use super::strided_iterator::StridedIterator;
 
 type BroadcastMutView<'a, Z, T, Sout: Shape, A> = Tensor<Static, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
 type BroadcastDynamicMutView<'a, Z, T, Sout: Shape, A> = Tensor<Dynamic, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
+
+/// Initial values used in reduction operators
+/// for tensors of scalar type `Self`.
+/// 
+/// Implemented for all primitive numeric types.
+pub trait InitValues {
+    const SUM: Self;
+    const PROD: Self;
+    const MAX: Self;
+    const MIN: Self;
+}
+
+macro_rules! init_values_impl_float {
+    ($($t:ty)*) => ($(
+        impl InitValues for $t {
+            const SUM: Self = 0.0;
+            const PROD: Self = 1.0;
+            const MAX: Self = <$t>::NEG_INFINITY;
+            const MIN: Self = <$t>::INFINITY;
+        }
+    )*)
+}
+
+init_values_impl_float! { f64 f32 }
+
+macro_rules! init_values_impl_integer {
+    ($($t:ty)*) => ($(
+        impl InitValues for $t {
+            const SUM: Self = 0;
+            const PROD: Self = 1;
+            const MAX: Self = <$t>::MIN;
+            const MIN: Self = <$t>::MAX;
+        }
+    )*)
+}
+
+init_values_impl_integer! { u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }
 
 /// Summation allong chosen axes of a static tensor.
 ///
@@ -169,9 +205,17 @@ macro_rules! reduction_impl {
     };
 }
 
-reduction_impl! { Sum; sum; Add_; add_; T::ZERO; where T: AddAssign, Ring }
-reduction_impl! { Prod; prod; Mul_; mul_; T::ONE; where T: MulAssign, Ring }
-reduction_impl! { MaxReduce; max_reduce; Max_; max_; f64::NEG_INFINITY; for f64 }
-reduction_impl! { MaxReduce; max_reduce; Max_; max_; f32::NEG_INFINITY; for f32 }
-reduction_impl! { MinReduce; min_reduce; Min_; min_; f64::INFINITY; for f64 }
-reduction_impl! { MinReduce; min_reduce; Min_; min_; f32::INFINITY; for f32 }
+reduction_impl! { Sum; sum; Add_; add_; T::SUM; where T: AddAssign, InitValues }
+reduction_impl! { Prod; prod; Mul_; mul_; T::PROD; where T: MulAssign, InitValues }
+
+// Primitive numeric types specific reductions.
+// NOTE: this restriction is due to the way Min_ and Max_
+// are implemented and NEEDS TO BE FIXED.
+macro_rules! reduction_impl_numeric {
+    ($($t:ty)*) => {$(
+        reduction_impl! { MaxReduce; max_reduce; Max_; max_; <$t>::MAX; for $t }
+        reduction_impl! { MinReduce; min_reduce; Min_; min_; <$t>::MIN; for $t }
+    )*};
+}
+
+reduction_impl_numeric! { f64 f32 u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }

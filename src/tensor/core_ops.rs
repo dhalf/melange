@@ -42,7 +42,6 @@ use crate::tensor::{Tensor, Static, Dynamic};
 use super::layout::Layout;
 use super::shape::{Shape, Same, TRUE};
 use crate::gat::{RefMutGat, StreamingIterator};
-use crate::algebra::Field;
 use crate::tensor::alloc::AllocLike;
 
 macro_rules! assert_shape_eq {
@@ -56,6 +55,39 @@ macro_rules! assert_shape_eq {
         );
     };
 }
+
+/// Values used in mask operators such as
+/// argmin and argmax.
+/// 
+/// Implemented for all primitive numeric types.
+pub trait MaskValues {
+    /// Mask false value.
+    const FALSE: Self;
+    /// Mask true value.
+    const TRUE: Self;
+}
+
+macro_rules! mask_values_impl_float {
+    ($($t:ty)*) => ($(
+        impl MaskValues for $t {
+            const FALSE: $t = 0.0;
+            const TRUE: $t = 1.0;
+        }
+    )*)
+}
+
+mask_values_impl_float! { f64 f32 }
+
+macro_rules! mask_values_impl_integer {
+    ($($t:ty)*) => ($(
+        impl MaskValues for $t {
+            const FALSE: $t = 0;
+            const TRUE: $t = 1;
+        }
+    )*)
+}
+
+mask_values_impl_integer! { u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }
 
 /// In-place elementwise addition operator.
 /// 
@@ -272,8 +304,6 @@ pub trait Rem_<Rhs=Self> {
 /// 
 /// Implemented for all tensors whose scalar type is
 /// `f32` or `f64` using primitive [`atan2`](f32::atan2) function.
-/// `rhs` can either be a tensor or a scalar having the same scalar
-/// type.
 ///
 /// # Panics
 /// If `self` and `rhs` are dynamic tensors with differing
@@ -293,19 +323,6 @@ pub trait Rem_<Rhs=Self> {
 /// a.abs_();
 /// assert!(a < f64::EPSILON);
 /// ```
-///
-/// ```
-/// use melange_scratch::prelude::*;
-/// use typenum::U2;
-/// use std::f64::consts::FRAC_PI_2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, -2.0, 1.0]).unwrap();
-/// a.atan2_(0.0);
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![FRAC_PI_2, FRAC_PI_2, -FRAC_PI_2, FRAC_PI_2]).unwrap();
-/// a.sub_(&b);
-/// a.abs_();
-/// assert!(a < f64::EPSILON);
-///```
 pub trait Atan2_<Rhs=Self> {
     /// Performs the in-place four quadrant arctangent operation.
     fn atan2_(&mut self, rhs: Rhs);
@@ -321,7 +338,6 @@ pub trait Atan2_<Rhs=Self> {
 /// 
 /// Implemented for all tensors whose scalar type is
 /// `f32` or `f64` using primitive [`copysign`](f32::copysign) function.
-/// `rhs` can either be a tensor or a scalar having the same scalar type.
 ///
 /// # Panics
 /// If `self` and `rhs` are dynamic tensors with differing
@@ -338,16 +354,6 @@ pub trait Atan2_<Rhs=Self> {
 /// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -3.0, 4.0]).unwrap();
 /// assert_eq!(a, c);
 /// ```
-///
-/// ```
-/// use melange_scratch::prelude::*;
-/// use typenum::U2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -1.0, 5.0]).unwrap();
-/// a.copysign_(-5.0);
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, -2.0, -1.0, -5.0]).unwrap();
-/// assert_eq!(a, b);
-///```
 pub trait Copysign_<Rhs=Self> {
     /// Performs the in-place copysign operation.
     fn copysign_(&mut self, rhs: Rhs);
@@ -529,6 +535,88 @@ pub trait Max_<Rhs=Self> {
 pub trait Min_<Rhs=Self> {
     /// Performs the in-place max operation.
     fn min_(&mut self, rhs: Rhs);
+}
+
+/// In-place elementwise argmax operator.
+/// 
+/// Computes the argmax of `self` and `rhs`.
+/// 
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+/// If `Rhs` is a tensor, it should have a shape compatible with
+/// the shape of `Self`.
+/// 
+/// Implemented using [`PartialOrd`](std::ord::PartialOrd)
+/// `rhs` can either be a tensor or a scalar having the same scalar type.
+///
+/// # Panics
+/// If `self` and `rhs` are dynamic tensors with differing
+/// runtime shapes.
+///
+/// # Examples
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
+/// a.argmax_(&b);
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a, c);
+/// ```
+///
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
+/// a.argmax_(5.0);
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a, b);
+///```
+pub trait Argmax_<Rhs=Self> {
+    /// Performs the in-place argmax operation.
+    fn argmax_(&mut self, rhs: Rhs);
+}
+
+/// In-place elementwise argmin operator.
+/// 
+/// Computes the argmin of `self` and `rhs`.
+/// 
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+/// If `Rhs` is a tensor, it should have a shape compatible with
+/// the shape of `Self`.
+/// 
+/// Implemented using [`PartialOrd`](std::ord::PartialOrd)
+/// `rhs` can either be a tensor or a scalar having the same scalar type.
+///
+/// # Panics
+/// If `self` and `rhs` are dynamic tensors with differing
+/// runtime shapes.
+///
+/// # Examples
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
+/// a.argmin_(&b);
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 0.0, 1.0]).unwrap();
+/// assert_eq!(a, c);
+/// ```
+/// 
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
+/// a.argmin_(5.0);
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 1.0, 0.0, 1.0]).unwrap();
+/// assert_eq!(a, b);
+///```
+pub trait Argmin_<Rhs=Self> {
+    /// Performs the in-place max operation.
+    fn argmin_(&mut self, rhs: Rhs);
 }
 
 /// In-place elementwise power operator.
@@ -1238,32 +1326,6 @@ pub trait Recip_ {
     fn recip_(&mut self);
 }
 
-/// In-place elementwise multiplicative inverse function.
-/// 
-/// `self -> 1 / self`
-///  
-/// Implemented for all tensors whose scalar type implements
-/// the [`Field`](crate::algebra::Field) trait. For primitive
-/// `f32` and `f64` types, this is strictly equivalent to
-/// [`Recip_`](Recip_).
-///
-/// # Examples
-/// ```
-/// use melange_scratch::prelude::*;
-/// use typenum::U2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, 0.5, 4.0]).unwrap();
-/// a.minv_();
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -0.5, 2.0, 0.25]).unwrap();
-/// a.sub_(&b);
-/// a.abs_();
-/// assert!(a < 1e-10);
-/// ```
-pub trait Minv_ {
-    /// Computes in-place elementwise the multiplicative inverse.
-    fn minv_(&mut self);
-}
-
 /// In-place elementwise conversion to degrees function.
 /// 
 /// `self` (in radians) `-> self` (in degrees)
@@ -1341,16 +1403,6 @@ pub trait ToRadians_ {
 /// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![FRAC_PI_2, FRAC_PI_4, FRAC_PI_4, FRAC_PI_2]).unwrap();
 /// assert!(a.atan2(&b).sub(&c).abs() < f64::EPSILON);
 /// ```
-///
-/// ```
-/// use melange_scratch::prelude::*;
-/// use typenum::U2;
-/// use std::f64::consts::FRAC_PI_2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, -2.0, 1.0]).unwrap();
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![FRAC_PI_2, FRAC_PI_2, -FRAC_PI_2, FRAC_PI_2]).unwrap();
-/// assert!(a.atan2(0.0).sub(&b).abs() < f64::EPSILON);
-///```
 pub trait Atan2<Rhs=Self> {
     /// Output type.
     type Output;
@@ -1379,15 +1431,6 @@ pub trait Atan2<Rhs=Self> {
 /// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -3.0, 4.0]).unwrap();
 /// assert_eq!(a.copysign(&b), c);
 /// ```
-///
-/// ```
-/// use melange_scratch::prelude::*;
-/// use typenum::U2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -1.0, 5.0]).unwrap();
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, -2.0, -1.0, -5.0]).unwrap();
-/// assert_eq!(a.copysign(-5.0), b);
-///```
 pub trait Copysign<Rhs=Self> {
     /// Output type.
     type Output;
@@ -1549,6 +1592,78 @@ pub trait Min<Rhs=Self> {
     type Output;
     /// Performs the max operation.
     fn min(self, rhs: Rhs) -> Self::Output;
+}
+
+/// Elementwise argmax operator.
+/// 
+/// Computes the argmax of `self` and `rhs`.
+/// 
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+/// If `Rhs` is a tensor, it should have a shape compatible with
+/// the shape of `Self`.
+/// 
+/// Implemented using [`PartialOrd`](std::ord::PartialOrd).
+///
+/// # Examples
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a.argmax(&b), c);
+/// ```
+///
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a.argmax(5.0), b);
+///```
+pub trait Argmax<Rhs=Self> {
+    /// Output type.
+    type Output;
+    /// Performs the max operation.
+    fn argmax(self, rhs: Rhs) -> Self::Output;
+}
+
+/// Elementwise min operator.
+/// 
+/// Computes the min of `self` and `rhs`.
+/// 
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+/// If `Rhs` is a tensor, it should have a shape compatible with
+/// the shape of `Self`.
+/// 
+/// Implemented using [`PartialOrd`](std::ord::PartialOrd).
+///
+/// # Examples
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 0.0, 1.0]).unwrap();
+/// assert_eq!(a.argmin(&b), c);
+/// ```
+///
+/// ```
+/// use melange_scratch::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 1.0, 0.0, 1.0]).unwrap();
+/// assert_eq!(a.argmin(5.0), b);
+///```
+pub trait Argmin<Rhs=Self> {
+    /// Output type.
+    type Output;
+    /// Performs the max operation.
+    fn argmin(self, rhs: Rhs) -> Self::Output;
 }
 
 /// Elementwise pow operator.
@@ -2263,31 +2378,6 @@ pub trait Recip {
     fn recip(self) -> Self::Output;
 }
 
-/// Elementwise multiplicative inverse function.
-/// 
-/// Returns `1 / self`.
-///  
-/// Implemented for all tensors whose scalar type implements
-/// the [`Field`](crate::algebra::Field) trait. For primitive
-/// `f32` and `f64` types, this is strictly equivalent to
-/// [`Recip_`](Recip_).
-///
-/// # Examples
-/// ```
-/// use melange_scratch::prelude::*;
-/// use typenum::U2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, 0.5, 4.0]).unwrap();
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -0.5, 2.0, 0.25]).unwrap();
-/// assert!(a.minv().sub(&b).abs() < 1e-10);
-/// ```
-pub trait Minv {
-    /// Output type.
-    type Output;
-    /// Returns the multiplicative inverse of `self`.
-    fn minv(self) -> Self::Output;
-}
-
 /// Elementwise conversion to degrees function.
 /// 
 /// Returns `self` (in degrees).
@@ -2427,7 +2517,11 @@ pub trait MulAdd<Rhs0=Self, Rhs1=Self> {
     fn mul_add(self, rhs0: Rhs0, rhs1: Rhs1) -> Self::Output;
 }
 
-macro_rules! inplace_op_trait_impl_binary {
+// --------------------
+// Binary inplace ops
+// --------------------
+
+macro_rules! binary_inplace_op_trait_impl {
     (
         $trait_name:ident; $fn_name:ident; $(where $generic:ident: $($bound:path),*;)? $(for $scalar_type:ty;)?
         ($x:ident, $y:ident) => {$scalar_op:stmt}
@@ -2478,49 +2572,50 @@ macro_rules! inplace_op_trait_impl_binary {
     };
 }
 
-inplace_op_trait_impl_binary! { Add_; add_; where T: Copy, AddAssign; (x, y) => { *x += *y } }
-inplace_op_trait_impl_binary! { Sub_; sub_; where T: Copy, SubAssign; (x, y) => { *x -= *y } }
-inplace_op_trait_impl_binary! { Mul_; mul_; where T: Copy, MulAssign; (x, y) => { *x *= *y } }
-inplace_op_trait_impl_binary! { Div_; div_; where T: Copy, DivAssign; (x, y) => { *x /= *y } }
-inplace_op_trait_impl_binary! { Rem_; rem_; where T: Copy, RemAssign; (x, y) => { *x %= *y } }
-// FIX REQUIRED
-// Conflicts with Max and Min for f64 and f32
-// inplace_op_trait_impl_binary! { Max_; max_; where T: Copy, Ord; (x, y) => { *x = (*x).max(*y) } }
-// inplace_op_trait_impl_binary! { Min_; min_; where T: Copy, Ord; (x, y) => { *x = (*x).min(*y) } }
-inplace_op_trait_impl_binary! { Atan2_; atan2_; for f64; (x, y) => { *x = x.atan2(*y) } }
-inplace_op_trait_impl_binary! { Copysign_; copysign_; for f64; (x, y) => { *x = x.copysign(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for f64; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { Max_; max_; for f64; (x, y) => { *x = x.max(*y) } }
-inplace_op_trait_impl_binary! { Min_; min_; for f64; (x, y) => { *x = x.min(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for f64; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { Atan2_; atan2_; for f32; (x, y) => { *x = x.atan2(*y) } }
-inplace_op_trait_impl_binary! { Copysign_; copysign_; for f32; (x, y) => { *x = x.copysign(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for f32; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { Max_; max_; for f32; (x, y) => { *x = x.max(*y) } }
-inplace_op_trait_impl_binary! { Min_; min_; for f32; (x, y) => { *x = x.min(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for f32; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for u128; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for u128; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for u64; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for u64; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for u32; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for u32; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for u16; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for u16; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for u8; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for u8; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for i128; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for i128; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for i64; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for i64; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for i32; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for i32; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for i16; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for i16; (x, y) => { *x = x.rem_euclid(*y) } }
-inplace_op_trait_impl_binary! { DivEuclid_; div_euclid_; for i8; (x, y) => { *x = x.div_euclid(*y) } }
-inplace_op_trait_impl_binary! { RemEuclid_; rem_euclid_; for i8; (x, y) => { *x = x.rem_euclid(*y) } }
+// Generic operations
+binary_inplace_op_trait_impl! { Add_; add_; where T: Copy, AddAssign; (x, y) => { *x += *y } }
+binary_inplace_op_trait_impl! { Sub_; sub_; where T: Copy, SubAssign; (x, y) => { *x -= *y } }
+binary_inplace_op_trait_impl! { Mul_; mul_; where T: Copy, MulAssign; (x, y) => { *x *= *y } }
+binary_inplace_op_trait_impl! { Div_; div_; where T: Copy, DivAssign; (x, y) => { *x /= *y } }
+binary_inplace_op_trait_impl! { Rem_; rem_; where T: Copy, RemAssign; (x, y) => { *x %= *y } }
+binary_inplace_op_trait_impl! { Argmax_; argmax_; where T: PartialOrd, MaskValues; (x, y) => { *x = if y > x { T::TRUE } else { T::FALSE } } }
+binary_inplace_op_trait_impl! { Argmin_; argmin_; where T: PartialOrd, MaskValues; (x, y) => { *x = if y < x { T::TRUE } else { T::FALSE } } }
 
-macro_rules! inplace_op_trait_impl_scalar {
+// Float specific operations
+macro_rules! binary_inplace_op_trait_impl_float {
+    ($($t:ty)*) => {$(
+        binary_inplace_op_trait_impl! { Atan2_; atan2_; for $t; (x, y) => { *x = x.atan2(*y) } }
+        binary_inplace_op_trait_impl! { Copysign_; copysign_; for $t; (x, y) => { *x = x.copysign(*y) } }
+        binary_inplace_op_trait_impl! { DivEuclid_; div_euclid_; for $t; (x, y) => { *x = x.div_euclid(*y) } }
+        binary_inplace_op_trait_impl! { Max_; max_; for $t; (x, y) => { *x = x.max(*y) } }
+        binary_inplace_op_trait_impl! { Min_; min_; for $t; (x, y) => { *x = x.min(*y) } }
+        binary_inplace_op_trait_impl! { RemEuclid_; rem_euclid_; for $t; (x, y) => { *x = x.rem_euclid(*y) } }
+    )*};
+}
+
+binary_inplace_op_trait_impl_float! { f64 f32 }
+
+// Integer specific operations
+macro_rules! binary_inplace_op_trait_impl_integer {
+    ($($t:ty)*) => {$(
+        binary_inplace_op_trait_impl! { DivEuclid_; div_euclid_; for $t; (x, y) => { *x = x.div_euclid(*y) } }
+        binary_inplace_op_trait_impl! { RemEuclid_; rem_euclid_; for $t; (x, y) => { *x = x.rem_euclid(*y) } }
+        
+        // NOTE: we need to implement those for all iteger types
+        // since an Ord bound on a generic type `T` would lead to
+        // conflicting impls.
+        binary_inplace_op_trait_impl! { Max_; max_; for $t; (x, y) => { *x = (*x).max(*y) } }
+        binary_inplace_op_trait_impl! { Min_; min_; for $t; (x, y) => { *x = (*x).min(*y) } }
+    )*};
+}
+
+binary_inplace_op_trait_impl_integer! { u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }
+
+// ---------------------------
+// one-parameter inplace ops
+// ---------------------------
+
+macro_rules! one_param_inplace_op_trait_impl {
     (
         $trait_name:ident<$param_type:ty>; $fn_name:ident; $(where $generic:ident: $($bound:path),*;)? $(for $scalar_type:ty;)?
         ($x:ident, $rhs:ident) => {$scalar_op:stmt}
@@ -2546,59 +2641,48 @@ macro_rules! inplace_op_trait_impl_scalar {
     };
 }
 
-inplace_op_trait_impl_scalar! { Add_<T>; add_; where T: Copy, AddAssign; (x, rhs) => { *x += rhs } }
-inplace_op_trait_impl_scalar! { Sub_<T>; sub_; where T: Copy, SubAssign; (x, rhs) => { *x -= rhs } }
-inplace_op_trait_impl_scalar! { Mul_<T>; mul_; where T: Copy, MulAssign; (x, rhs) => { *x *= rhs } }
-inplace_op_trait_impl_scalar! { Div_<T>; div_; where T: Copy, DivAssign; (x, rhs) => { *x /= rhs } }
-inplace_op_trait_impl_scalar! { Rem_<T>; rem_; where T: Copy, RemAssign; (x, rhs) => { *x %= rhs } }
-inplace_op_trait_impl_scalar! { Atan2_<f64>; atan2_; for f64; (x, rhs) => { *x = x.atan2(rhs) } }
-inplace_op_trait_impl_scalar! { Copysign_<f64>; copysign_; for f64; (x, rhs) => { *x = x.copysign(rhs) } }
-// FIX REQUIRED
-// Conflicts with Max and Min for f64 and f32
-// inplace_op_trait_impl_scalar! { Max_<T>; max_; where T: Copy, Ord; (x, rhs) => { *x = (*x).max(rhs) } }
-// inplace_op_trait_impl_scalar! { Min_<T>; min_; where T: Copy, Ord; (x, rhs) => { *x = (*x).min(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<f64>; div_euclid_; for f64; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { Max_<f64>; max_; for f64; (x, rhs) => { *x = x.max(rhs) } }
-inplace_op_trait_impl_scalar! { Min_<f64>; min_; for f64; (x, rhs) => { *x = x.min(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<f64>; pow_; for f64; (x, rhs) => { *x = x.powf(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<f64>; rem_euclid_; for f64; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<i32>; pow_; for f64; (x, rhs) => { *x = x.powi(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<f32>; div_euclid_; for f32; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { Max_<f32>; max_; for f32; (x, rhs) => { *x = x.max(rhs) } }
-inplace_op_trait_impl_scalar! { Min_<f32>; min_; for f32; (x, rhs) => { *x = x.min(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<f32>; pow_; for f32; (x, rhs) => { *x = x.powf(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<f32>; rem_euclid_; for f32; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<i32>; pow_; for f32; (x, rhs) => { *x = x.powi(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for u128; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for u64; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for u32; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for u16; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for u8; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for i128; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for i64; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for i32; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for i16; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { Pow_<u32>; pow_; for i8; (x, rhs) => { *x = x.pow(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<u128>; div_euclid_; for u128; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<u128>; rem_euclid_; for u128; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<u64>; div_euclid_; for u64; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<u64>; rem_euclid_; for u64; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<u32>; div_euclid_; for u32; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<u32>; rem_euclid_; for u32; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<u16>; div_euclid_; for u16; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<u16>; rem_euclid_; for u16; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<u8>; div_euclid_; for u8; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<u8>; rem_euclid_; for u8; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<i128>; div_euclid_; for i128; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<i128>; rem_euclid_; for i128; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<i64>; div_euclid_; for i64; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<i64>; rem_euclid_; for i64; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<i32>; div_euclid_; for i32; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<i32>; rem_euclid_; for i32; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<i16>; div_euclid_; for i16; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<i16>; rem_euclid_; for i16; (x, rhs) => { *x = x.rem_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { DivEuclid_<i8>; div_euclid_; for i8; (x, rhs) => { *x = x.div_euclid(rhs) } }
-inplace_op_trait_impl_scalar! { RemEuclid_<i8>; rem_euclid_; for i8; (x, rhs) => { *x = x.rem_euclid(rhs) } }
+one_param_inplace_op_trait_impl! { Add_<T>; add_; where T: Copy, AddAssign; (x, rhs) => { *x += rhs } }
+one_param_inplace_op_trait_impl! { Sub_<T>; sub_; where T: Copy, SubAssign; (x, rhs) => { *x -= rhs } }
+one_param_inplace_op_trait_impl! { Mul_<T>; mul_; where T: Copy, MulAssign; (x, rhs) => { *x *= rhs } }
+one_param_inplace_op_trait_impl! { Div_<T>; div_; where T: Copy, DivAssign; (x, rhs) => { *x /= rhs } }
+one_param_inplace_op_trait_impl! { Rem_<T>; rem_; where T: Copy, RemAssign; (x, rhs) => { *x %= rhs } }
+one_param_inplace_op_trait_impl! { Argmax_<T>; argmax_; where T: PartialOrd, MaskValues; (x, rhs) => { *x = if rhs > *x { T::TRUE } else { T::FALSE } } }
+one_param_inplace_op_trait_impl! { Argmin_<T>; argmin_; where T: PartialOrd, MaskValues; (x, rhs) => { *x = if rhs < *x { T::TRUE } else { T::FALSE } } }
+
+// Float specific operations
+macro_rules! one_param_inplace_op_trait_impl_float {
+    ($($t:ty)*) => {$(
+        one_param_inplace_op_trait_impl! { DivEuclid_<$t>; div_euclid_; for $t; (x, rhs) => { *x = x.div_euclid(rhs) } }
+        one_param_inplace_op_trait_impl! { Max_<$t>; max_; for $t; (x, rhs) => { *x = x.max(rhs) } }
+        one_param_inplace_op_trait_impl! { Min_<$t>; min_; for $t; (x, rhs) => { *x = x.min(rhs) } }
+        one_param_inplace_op_trait_impl! { Pow_<$t>; pow_; for $t; (x, rhs) => { *x = x.powf(rhs) } }
+        one_param_inplace_op_trait_impl! { RemEuclid_<$t>; rem_euclid_; for $t; (x, rhs) => { *x = x.rem_euclid(rhs) } }
+        one_param_inplace_op_trait_impl! { Pow_<i32>; pow_; for $t; (x, rhs) => { *x = x.powi(rhs) } }
+    )*};
+}
+
+one_param_inplace_op_trait_impl_float! { f64 f32 }
+
+// Integer specific operations
+macro_rules! one_param_inplace_op_trait_impl_integer {
+    ($($t:ty)*) => {$(
+        one_param_inplace_op_trait_impl! { Pow_<u32>; pow_; for $t; (x, rhs) => { *x = x.pow(rhs) } }
+        one_param_inplace_op_trait_impl! { DivEuclid_<$t>; div_euclid_; for $t; (x, rhs) => { *x = x.div_euclid(rhs) } }
+        one_param_inplace_op_trait_impl! { RemEuclid_<$t>; rem_euclid_; for $t; (x, rhs) => { *x = x.rem_euclid(rhs) } }
+        
+        // NOTE: we need to implement those for all iteger types
+        // since an Ord bound on a generic type `T` would lead to
+        // conflicting impls.
+        one_param_inplace_op_trait_impl! { Max_<$t>; max_; for $t; (x, rhs) => { *x = (*x).max(rhs) } }
+        one_param_inplace_op_trait_impl! { Min_<$t>; min_; for $t; (x, rhs) => { *x = (*x).min(rhs) } }
+    )*};
+}
+
+one_param_inplace_op_trait_impl_integer! { u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }
+
+// ------------
+// inplace fn
+// ------------
 
 macro_rules! inplace_fn_trait_impl {
     (
@@ -2626,77 +2710,58 @@ macro_rules! inplace_fn_trait_impl {
     };
 }
 
-inplace_fn_trait_impl! { Exp_; exp_; for f64; (x) => { *x = x.exp() } }
-inplace_fn_trait_impl! { Exp2_; exp2_; for f64; (x) => { *x = x.exp2() } }
-inplace_fn_trait_impl! { ExpM1_; exp_m1_; for f64; (x) => { *x = x.exp_m1() } }
-inplace_fn_trait_impl! { Ln_; ln_; for f64; (x) => { *x = x.ln() } }
-inplace_fn_trait_impl! { Ln1p_; ln_1p_; for f64; (x) => { *x = x.ln_1p() } }
-inplace_fn_trait_impl! { Log2_; log2_; for f64; (x) => { *x = x.log2() } }
-inplace_fn_trait_impl! { Log10_; log10_; for f64; (x) => { *x = x.log10() } }
-inplace_fn_trait_impl! { Sin_; sin_; for f64; (x) => { *x = x.sin() } }
-inplace_fn_trait_impl! { Cos_; cos_; for f64; (x) => { *x = x.cos() } }
-inplace_fn_trait_impl! { Tan_; tan_; for f64; (x) => { *x = x.tan() } }
-inplace_fn_trait_impl! { Sinh_; sinh_; for f64; (x) => { *x = x.sinh() } }
-inplace_fn_trait_impl! { Cosh_; cosh_; for f64; (x) => { *x = x.cosh() } }
-inplace_fn_trait_impl! { Tanh_; tanh_; for f64; (x) => { *x = x.tanh() } }
-inplace_fn_trait_impl! { Asin_; asin_; for f64; (x) => { *x = x.asin() } }
-inplace_fn_trait_impl! { Acos_; acos_; for f64; (x) => { *x = x.acos() } }
-inplace_fn_trait_impl! { Atan_; atan_; for f64; (x) => { *x = x.atan() } }
-inplace_fn_trait_impl! { Asinh_; asinh_; for f64; (x) => { *x = x.asinh() } }
-inplace_fn_trait_impl! { Acosh_; acosh_; for f64; (x) => { *x = x.acosh() } }
-inplace_fn_trait_impl! { Atanh_; atanh_; for f64; (x) => { *x = x.atanh() } }
-inplace_fn_trait_impl! { Sqrt_; sqrt_; for f64; (x) => { *x = x.sqrt() } }
-inplace_fn_trait_impl! { Cbrt_; cbrt_; for f64; (x) => { *x = x.cbrt() } }
-inplace_fn_trait_impl! { Abs_; abs_; for f64; (x) => { *x = x.abs() } }
-inplace_fn_trait_impl! { Signum_; signum_; for f64; (x) => { *x = x.signum() } }
-inplace_fn_trait_impl! { Ceil_; ceil_; for f64; (x) => { *x = x.ceil() } }
-inplace_fn_trait_impl! { Floor_; floor_; for f64; (x) => { *x = x.floor() } }
-inplace_fn_trait_impl! { Round_; round_; for f64; (x) => { *x = x.round() } }
-inplace_fn_trait_impl! { Recip_; recip_; for f64; (x) => { *x = x.recip() } }
-inplace_fn_trait_impl! { ToDegrees_; to_degrees_; for f64; (x) => { *x = x.to_degrees() } }
-inplace_fn_trait_impl! { ToRadians_; to_radians_; for f64; (x) => { *x = x.to_radians() } }
-inplace_fn_trait_impl! { Exp_; exp_; for f32; (x) => { *x = x.exp() } }
-inplace_fn_trait_impl! { Exp2_; exp2_; for f32; (x) => { *x = x.exp2() } }
-inplace_fn_trait_impl! { ExpM1_; exp_m1_; for f32; (x) => { *x = x.exp() } }
-inplace_fn_trait_impl! { Ln_; ln_; for f32; (x) => { *x = x.ln() } }
-inplace_fn_trait_impl! { Ln1p_; ln_1p_; for f32; (x) => { *x = x.ln_1p() } }
-inplace_fn_trait_impl! { Log2_; log2_; for f32; (x) => { *x = x.log2() } }
-inplace_fn_trait_impl! { Log10_; log10_; for f32; (x) => { *x = x.log10() } }
-inplace_fn_trait_impl! { Sin_; sin_; for f32; (x) => { *x = x.sin() } }
-inplace_fn_trait_impl! { Cos_; cos_; for f32; (x) => { *x = x.cos() } }
-inplace_fn_trait_impl! { Tan_; tan_; for f32; (x) => { *x = x.tan() } }
-inplace_fn_trait_impl! { Sinh_; sinh_; for f32; (x) => { *x = x.sinh() } }
-inplace_fn_trait_impl! { Cosh_; cosh_; for f32; (x) => { *x = x.cosh() } }
-inplace_fn_trait_impl! { Tanh_; tanh_; for f32; (x) => { *x = x.tanh() } }
-inplace_fn_trait_impl! { Asin_; asin_; for f32; (x) => { *x = x.asin() } }
-inplace_fn_trait_impl! { Acos_; acos_; for f32; (x) => { *x = x.acos() } }
-inplace_fn_trait_impl! { Atan_; atan_; for f32; (x) => { *x = x.atan() } }
-inplace_fn_trait_impl! { Asinh_; asinh_; for f32; (x) => { *x = x.asinh() } }
-inplace_fn_trait_impl! { Acosh_; acosh_; for f32; (x) => { *x = x.acosh() } }
-inplace_fn_trait_impl! { Atanh_; atanh_; for f32; (x) => { *x = x.atanh() } }
-inplace_fn_trait_impl! { Sqrt_; sqrt_; for f32; (x) => { *x = x.sqrt() } }
-inplace_fn_trait_impl! { Cbrt_; cbrt_; for f32; (x) => { *x = x.cbrt() } }
-inplace_fn_trait_impl! { Abs_; abs_; for f32; (x) => { *x = x.abs() } }
-inplace_fn_trait_impl! { Signum_; signum_; for f32; (x) => { *x = x.signum() } }
-inplace_fn_trait_impl! { Ceil_; ceil_; for f32; (x) => { *x = x.ceil() } }
-inplace_fn_trait_impl! { Floor_; floor_; for f32; (x) => { *x = x.floor() } }
-inplace_fn_trait_impl! { Round_; round_; for f32; (x) => { *x = x.round() } }
-inplace_fn_trait_impl! { Recip_; recip_; for f32; (x) => { *x = x.recip() } }
-inplace_fn_trait_impl! { ToDegrees_; to_degrees_; for f32; (x) => { *x = x.to_degrees() } }
-inplace_fn_trait_impl! { ToRadians_; to_radians_; for f32; (x) => { *x = x.to_radians() } }
-inplace_fn_trait_impl! { Abs_; abs_; for i128; (x) => { *x = x.abs() } }
-inplace_fn_trait_impl! { Signum_; signum_; for i128; (x) => { *x = x.signum() } }
-inplace_fn_trait_impl! { Abs_; abs_; for i64; (x) => { *x = x.abs() } }
-inplace_fn_trait_impl! { Signum_; signum_; for i64; (x) => { *x = x.signum() } }
-inplace_fn_trait_impl! { Abs_; abs_; for i32; (x) => { *x = x.abs() } }
-inplace_fn_trait_impl! { Signum_; signum_; for i32; (x) => { *x = x.signum() } }
-inplace_fn_trait_impl! { Abs_; abs_; for i16; (x) => { *x = x.abs() } }
-inplace_fn_trait_impl! { Signum_; signum_; for i16; (x) => { *x = x.signum() } }
-inplace_fn_trait_impl! { Abs_; abs_; for i8; (x) => { *x = x.abs() } }
-inplace_fn_trait_impl! { Signum_; signum_; for i8; (x) => { *x = x.signum() } }
-inplace_fn_trait_impl! { Minv_; minv_; where T: Field, Div<Output=T>, Copy; (x) => { *x = x.minv() } }
+// Float specific fn.
+macro_rules! inplace_fn_trait_impl_float {
+    ($($t:ty)*) => {$(
+        inplace_fn_trait_impl! { Exp_; exp_; for $t; (x) => { *x = x.exp() } }
+        inplace_fn_trait_impl! { Exp2_; exp2_; for $t; (x) => { *x = x.exp2() } }
+        inplace_fn_trait_impl! { ExpM1_; exp_m1_; for $t; (x) => { *x = x.exp_m1() } }
+        inplace_fn_trait_impl! { Ln_; ln_; for $t; (x) => { *x = x.ln() } }
+        inplace_fn_trait_impl! { Ln1p_; ln_1p_; for $t; (x) => { *x = x.ln_1p() } }
+        inplace_fn_trait_impl! { Log2_; log2_; for $t; (x) => { *x = x.log2() } }
+        inplace_fn_trait_impl! { Log10_; log10_; for $t; (x) => { *x = x.log10() } }
+        inplace_fn_trait_impl! { Sin_; sin_; for $t; (x) => { *x = x.sin() } }
+        inplace_fn_trait_impl! { Cos_; cos_; for $t; (x) => { *x = x.cos() } }
+        inplace_fn_trait_impl! { Tan_; tan_; for $t; (x) => { *x = x.tan() } }
+        inplace_fn_trait_impl! { Sinh_; sinh_; for $t; (x) => { *x = x.sinh() } }
+        inplace_fn_trait_impl! { Cosh_; cosh_; for $t; (x) => { *x = x.cosh() } }
+        inplace_fn_trait_impl! { Tanh_; tanh_; for $t; (x) => { *x = x.tanh() } }
+        inplace_fn_trait_impl! { Asin_; asin_; for $t; (x) => { *x = x.asin() } }
+        inplace_fn_trait_impl! { Acos_; acos_; for $t; (x) => { *x = x.acos() } }
+        inplace_fn_trait_impl! { Atan_; atan_; for $t; (x) => { *x = x.atan() } }
+        inplace_fn_trait_impl! { Asinh_; asinh_; for $t; (x) => { *x = x.asinh() } }
+        inplace_fn_trait_impl! { Acosh_; acosh_; for $t; (x) => { *x = x.acosh() } }
+        inplace_fn_trait_impl! { Atanh_; atanh_; for $t; (x) => { *x = x.atanh() } }
+        inplace_fn_trait_impl! { Sqrt_; sqrt_; for $t; (x) => { *x = x.sqrt() } }
+        inplace_fn_trait_impl! { Cbrt_; cbrt_; for $t; (x) => { *x = x.cbrt() } }
+        inplace_fn_trait_impl! { Abs_; abs_; for $t; (x) => { *x = x.abs() } }
+        inplace_fn_trait_impl! { Signum_; signum_; for $t; (x) => { *x = x.signum() } }
+        inplace_fn_trait_impl! { Ceil_; ceil_; for $t; (x) => { *x = x.ceil() } }
+        inplace_fn_trait_impl! { Floor_; floor_; for $t; (x) => { *x = x.floor() } }
+        inplace_fn_trait_impl! { Round_; round_; for $t; (x) => { *x = x.round() } }
+        inplace_fn_trait_impl! { Recip_; recip_; for $t; (x) => { *x = x.recip() } }
+        inplace_fn_trait_impl! { ToDegrees_; to_degrees_; for $t; (x) => { *x = x.to_degrees() } }
+        inplace_fn_trait_impl! { ToRadians_; to_radians_; for $t; (x) => { *x = x.to_radians() } }
+    )*};
+}
 
-macro_rules! inplace_op_trait_impl_scalar2 {
+inplace_fn_trait_impl_float! { f64 f32 }
+
+// Signed integer specific fn.
+macro_rules! inplace_fn_trait_impl_signed_integer {
+    ($($t:ty)*) => {$(
+        inplace_fn_trait_impl! { Abs_; abs_; for $t; (x) => { *x = x.abs() } }
+        inplace_fn_trait_impl! { Signum_; signum_; for $t; (x) => { *x = x.signum() } }
+    )*};
+}
+
+inplace_fn_trait_impl_signed_integer! { i128 i64 i32 i16 i8 }
+
+// ---------------------------
+// two-parameter inplace ops
+// ---------------------------
+
+macro_rules! two_param_inplace_op_trait_impl {
     (
         $trait_name:ident<$param_type0:ty, $param_type1:ty>; $fn_name:ident; $(where $generic:ident: $($bound:path),*;)? $(for $scalar_type:ty;)?
         ($x:ident, $rhs0:ident, $rhs1:ident) => {$scalar_op:stmt}
@@ -2722,10 +2787,14 @@ macro_rules! inplace_op_trait_impl_scalar2 {
     };
 }
 
-inplace_op_trait_impl_scalar2! { MulAdd_<f64, f64>; mul_add_; for f64; (x, rhs0, rhs1) => { *x = x.mul_add(rhs0, rhs1) } }
-inplace_op_trait_impl_scalar2! { MulAdd_<f32, f32>; mul_add_; for f32; (x, rhs0, rhs1) => { *x = x.mul_add(rhs0, rhs1) } }
+two_param_inplace_op_trait_impl! { MulAdd_<f64, f64>; mul_add_; for f64; (x, rhs0, rhs1) => { *x = x.mul_add(rhs0, rhs1) } }
+two_param_inplace_op_trait_impl! { MulAdd_<f32, f32>; mul_add_; for f32; (x, rhs0, rhs1) => { *x = x.mul_add(rhs0, rhs1) } }
 
-macro_rules! inplace_op_trait_impl_ternary {
+// ---------------------
+// ternary inplace ops
+// ---------------------
+
+macro_rules! ternary_inplace_op_trait_impl {
     (
         $trait_name:ident; $fn_name:ident; $(where $generic:ident: $($bound:path),*;)? $(for $scalar_type:ty;)?
         ($x:ident, $y0:ident, $y1:ident) => {$scalar_op:stmt}
@@ -2790,8 +2859,8 @@ macro_rules! inplace_op_trait_impl_ternary {
     };
 }
 
-inplace_op_trait_impl_ternary! { MulAdd_; mul_add_; for f64; (x, y0, y1) => { *x = x.mul_add(*y0, *y1) } }
-inplace_op_trait_impl_ternary! { MulAdd_; mul_add_; for f32; (x, y0, y1) => { *x = x.mul_add(*y0, *y1) } }
+ternary_inplace_op_trait_impl! { MulAdd_; mul_add_; for f64; (x, y0, y1) => { *x = x.mul_add(*y0, *y1) } }
+ternary_inplace_op_trait_impl! { MulAdd_; mul_add_; for f32; (x, y0, y1) => { *x = x.mul_add(*y0, *y1) } }
 
 macro_rules! op_trait_impl {
     (
@@ -2826,6 +2895,8 @@ op_trait_impl! { Copysign; copysign; Copysign_; copysign_ }
 op_trait_impl! { DivEuclid; div_euclid; DivEuclid_; div_euclid_ }
 op_trait_impl! { Max; max; Max_; max_ }
 op_trait_impl! { Min; min; Min_; min_ }
+op_trait_impl! { Argmax; argmax; Argmax_; argmax_ }
+op_trait_impl! { Argmin; argmin; Argmin_; argmin_ }
 op_trait_impl! { RemEuclid; rem_euclid; RemEuclid_; rem_euclid_ }
 op_trait_impl! { Pow; pow; Pow_; pow_ }
 
@@ -2878,7 +2949,6 @@ fn_trait_impl! { Round; round; Round_; round_ }
 fn_trait_impl! { Recip; recip; Recip_; recip_ }
 fn_trait_impl! { ToDegrees; to_degrees; ToDegrees_; to_degrees_ }
 fn_trait_impl! { ToRadians; to_radians; ToRadians_; to_radians_ }
-fn_trait_impl! { Minv; minv; Minv_; minv_ }
 
 macro_rules! op2_trait_impl {
     (
