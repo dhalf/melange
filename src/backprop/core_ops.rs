@@ -3,7 +3,8 @@ use super::variable::{Variable, InternalVariable};
 use std::rc::Rc;
 use std::cell::RefCell;
 use crate::algebra::*;
-use std::ops::Neg;
+use std::ops::*;
+use crate::ops::*;
 use std::marker::PhantomData;
 
 macro_rules! ln_2 {
@@ -46,8 +47,8 @@ macro_rules! binary_op_impl {
                     B: AllocLike<Scalar = V::Scalar>,
 
                     // Backward calls on inputs in output backward closure.
-                    G: for<'a> Add_<&'a B>,
-                    Grhs: for<'a> Add_<&'a B::Alloc>,
+                    G: for<'a> AddAssign<&'a B>,
+                    Grhs: for<'a> AddAssign<&'a B::Alloc>,
 
                     // 'static bounds required by output backward closure.
                     V: 'static,
@@ -117,10 +118,10 @@ binary_op_impl! {
     Mul; mul; "mul_back";
     where
         &'a B | 'a, 'b: Mul<&'b V, Output = B::Alloc>,
-        B | 'a: Mul_<&'a Vrhs>;
+        B | 'a: MulAssign<&'a Vrhs>;
     (self, rhs) => move |mut grad| {
         rhs.backward(grad.mul(&self.value));
-        grad.mul_(&rhs.value);
+        grad.mul_assign(&rhs.value);
         self.backward(grad);
     }
 }
@@ -129,11 +130,11 @@ binary_op_impl! {
     Div; div; "div_back";
     where
         &'a B | 'a, 'b: Mul<&'b V, Output = B::Alloc>,
-        B | 'a: Div_<&'a Vrhs>;
+        B | 'a: DivAssign<&'a Vrhs>;
     (self, rhs) => move |mut grad| {
         rhs.backward(grad.mul(&self.value));
 
-        grad.div_(&rhs.value);
+        grad.div_assign(&rhs.value);
         self.backward(grad);
     }
 }
@@ -145,26 +146,26 @@ binary_op_impl! {
         V::Scalar: Neg<Output = V::Scalar>,
         &'a V | 'a: Pow<i32, Output = V::Alloc>,
         &'a Vrhs | 'a: Pow<i32, Output = Vrhs::Alloc>,
-        V::Alloc | 'a: Add_<&'a Vrhs::Alloc>,
-        B::Alloc | 'a: Mul_<&'a Vrhs>,
-        B::Alloc | 'a: Mul_<&'a V>,
-        B::Alloc | 'a: Div_<&'a V::Alloc>,
-        B::Alloc: Mul_<V::Scalar>,
-        B | 'a: Mul_<&'a Vrhs>,
-        B | 'a: Div_<&'a V::Alloc>;
+        V::Alloc | 'a: AddAssign<&'a Vrhs::Alloc>,
+        B::Alloc | 'a: MulAssign<&'a Vrhs>,
+        B::Alloc | 'a: MulAssign<&'a V>,
+        B::Alloc | 'a: DivAssign<&'a V::Alloc>,
+        B::Alloc: MulAssign<V::Scalar>,
+        B | 'a: MulAssign<&'a Vrhs>,
+        B | 'a: DivAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         let mut div = self.value.pow(2);
-        div.add_(&rhs.value.pow(2));
+        div.add_assign(&rhs.value.pow(2));
 
         let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_(&rhs.value);
-        rhs_grad.mul_(&self.value);
-        rhs_grad.div_(&div);
-        rhs_grad.mul_(-V::Scalar::ONE);
+        rhs_grad.mul_assign(&rhs.value);
+        rhs_grad.mul_assign(&self.value);
+        rhs_grad.div_assign(&div);
+        rhs_grad.mul_assign(-V::Scalar::ONE);
         rhs.backward(rhs_grad);
 
-        grad.mul_(&rhs.value);
-        grad.div_(&div);
+        grad.mul_assign(&rhs.value);
+        grad.div_assign(&div);
         self.backward(grad);
     }
 }
@@ -173,15 +174,15 @@ binary_op_impl! {
     Copysign; copysign; "copysign_back";
     where
         Vrhs: AllocLike,
-        B::Alloc | 'a: Mul_<&'a V>,
+        B::Alloc | 'a: MulAssign<&'a V>,
         &'a V | 'a: Signum<Output = V::Alloc>,
         &'a Vrhs | 'a: Signum<Output = Vrhs::Alloc>,
         &'a V::Alloc | 'a, 'b: Mul<&'b Vrhs::Alloc, Output = V::Alloc>,
-        B | 'a: Mul_<&'a V::Alloc>;
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         rhs.backward(grad.fill_like(V::Scalar::ZERO));
 
-        grad.mul_(&self.value.signum().mul(&rhs.value.signum()));
+        grad.mul_assign(&self.value.signum().mul(&rhs.value.signum()));
         self.backward(grad);
     }
 }
@@ -190,20 +191,20 @@ binary_op_impl! {
     Max; max; "max_back";
     where
         &'a V | 'a, 'b: Argmax<&'b Vrhs, Output = V::Alloc>,
-        B::Alloc | 'a: Mul_<&'a V::Alloc>,
+        B::Alloc | 'a: MulAssign<&'a V::Alloc>,
         V::Scalar: Neg<Output = V::Scalar>,
-        V::Alloc: MulAdd_<V::Scalar, V::Scalar>,
-        B | 'a: Mul_<&'a V::Alloc>;
+        V::Alloc: MulAddAssign<V::Scalar, V::Scalar>,
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         let mut mask = self.value.argmax(&rhs.value);
         
         let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_(&mask);
+        rhs_grad.mul_assign(&mask);
         rhs.backward(rhs_grad);
 
-        mask.mul_add_(-V::Scalar::ONE, V::Scalar::ONE);
+        mask.mul_add_assign(-V::Scalar::ONE, V::Scalar::ONE);
 
-        grad.mul_(&mask);
+        grad.mul_assign(&mask);
         self.backward(grad);
     }
 }
@@ -212,20 +213,20 @@ binary_op_impl! {
     Min; min; "min_back";
     where
         &'a V | 'a, 'b: Argmin<&'b Vrhs, Output = V::Alloc>,
-        B::Alloc | 'a: Mul_<&'a V::Alloc>,
+        B::Alloc | 'a: MulAssign<&'a V::Alloc>,
         V::Scalar: Neg<Output = V::Scalar>,
-        V::Alloc: MulAdd_<V::Scalar, V::Scalar>,
-        B | 'a: Mul_<&'a V::Alloc>;
+        V::Alloc: MulAddAssign<V::Scalar, V::Scalar>,
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         let mut mask = self.value.argmin(&rhs.value);
         
         let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_(&mask);
+        rhs_grad.mul_assign(&mask);
         rhs.backward(rhs_grad);
 
-        mask.mul_add_(-V::Scalar::ONE, V::Scalar::ONE);
+        mask.mul_add_assign(-V::Scalar::ONE, V::Scalar::ONE);
 
-        grad.mul_(&mask);
+        grad.mul_assign(&mask);
         self.backward(grad);
     }
 }
@@ -258,7 +259,7 @@ macro_rules! scalar_op_impl {
                     V: AllocLike<Scalar = $t>,
 
                     // Backward call on input in output backward closure.
-                    G: for<'a> Add_<&'a B>,
+                    G: for<'a> AddAssign<&'a B>,
 
                     // 'static bounds required by output backward closure.
                     V: 'static,
@@ -316,9 +317,9 @@ scalar_op_impl! {
 scalar_op_impl! {
     Div; div; "div_scalar_back";
     where
-        B: Div_<V::Scalar>;
+        B: DivAssign<V::Scalar>;
     (self, rhs) => move |mut grad| {
-        grad.div_(rhs);
+        grad.div_assign(rhs);
         self.backward(grad);
     }
 }
@@ -327,12 +328,12 @@ scalar_op_impl! {
     Max; max; "max_scalar_back";
     where
         &'a V | 'a: Argmax<V::Scalar, Output = V::Alloc>,
-        V::Alloc: MulAdd_<V::Scalar, V::Scalar>,
-        B | 'a: Mul_<&'a V::Alloc>;
+        V::Alloc: MulAddAssign<V::Scalar, V::Scalar>,
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         let mut mask = self.value.argmax(rhs);
-        mask.mul_add_(-1.0, 1.0);
-        grad.mul_(&mask);
+        mask.mul_add_assign(-1.0, 1.0);
+        grad.mul_assign(&mask);
         self.backward(grad);
     }
 }
@@ -341,12 +342,12 @@ scalar_op_impl! {
     Min; min; "min_scalar_back";
     where
         &'a V | 'a: Argmin<V::Scalar, Output = V::Alloc>,
-        V::Alloc: MulAdd_<V::Scalar, V::Scalar>,
-        B | 'a: Mul_<&'a V::Alloc>;
+        V::Alloc: MulAddAssign<V::Scalar, V::Scalar>,
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         let mut mask = self.value.argmin(rhs);
-        mask.mul_add_(-1.0, 1.0);
-        grad.mul_(&mask);
+        mask.mul_add_assign(-1.0, 1.0);
+        grad.mul_assign(&mask);
         self.backward(grad);
     }
 }
@@ -354,16 +355,16 @@ scalar_op_impl! {
 scalar_op_impl! {
     Pow; pow; "pow_back";
     where
-        V::Alloc: Mul_<V::Scalar>,
-        B: Mul_<V::Scalar>,
-        B | 'a: Mul_<&'a V::Alloc>;
+        V::Alloc: MulAssign<V::Scalar>,
+        B: MulAssign<V::Scalar>,
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         if rhs == 0.0 {
-            grad.mul_(0.0);
+            grad.mul_assign(0.0);
         } else if rhs != 1.0 {
             let mut part_grad = self.value.pow(rhs - 1.0);
-            part_grad.mul_(rhs);
-            grad.mul_(&part_grad);
+            part_grad.mul_assign(rhs);
+            grad.mul_assign(&part_grad);
         }
         self.backward(grad);
     }
@@ -372,16 +373,16 @@ scalar_op_impl! {
 scalar_op_impl! {
     Pow<i32>; pow; "pow_back";
     where
-        V::Alloc: Mul_<V::Scalar>,
-        B: Mul_<V::Scalar>,
-        B | 'a: Mul_<&'a V::Alloc>;
+        V::Alloc: MulAssign<V::Scalar>,
+        B: MulAssign<V::Scalar>,
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
         if rhs == 0 {
-            grad.mul_(0.0);
+            grad.mul_assign(0.0);
         } else if rhs != 1 {
             let mut part_grad = self.value.pow(rhs - 1);
-            part_grad.mul_(rhs as V::Scalar);
-            grad.mul_(&part_grad);
+            part_grad.mul_assign(rhs as V::Scalar);
+            grad.mul_assign(&part_grad);
         }
         self.backward(grad);
     }
@@ -409,7 +410,7 @@ macro_rules! reversed_scalar_op_impl {
                     B: AllocLike<Scalar = $t>,
         
                     // Backward calls on inputs in output backward closure.
-                    G: for<'a> Add_<&'a B>,
+                    G: for<'a> AddAssign<&'a B>,
         
                     // 'static bounds required by output backward closure.
                     V: 'static,
@@ -475,12 +476,12 @@ reversed_scalar_op_impl! {
     Mul; mul; "scalar_mul_back";
     where
         Self: Copy,
-        B: Mul_<Self>;
+        B: MulAssign<Self>;
     (self, rhs) => {
         rhs.value.mul(self)
     }
     => move |mut grad| {
-        grad.mul_(self);
+        grad.mul_assign(self);
         rhs.backward(grad);
     }
 }
@@ -489,10 +490,10 @@ reversed_scalar_op_impl! {
     Div; div; "scalar_div_back";
     where
         &'a V | 'a: Recip<Output = V::Alloc>,
-        V::Alloc: Mul_<Self>;
+        V::Alloc: MulAssign<Self>;
     (self, rhs) => {
         let mut value = rhs.value.recip();
-        value.mul_(self);
+        value.mul_assign(self);
         value
     }
     => move |grad| {
@@ -519,7 +520,7 @@ macro_rules! fn_impl {
                     V: AllocLike<Scalar = $t>,
 
                     // Backward call on input in output backward closure.
-                    G: for<'a> Add_<&'a B>,
+                    G: for<'a> AddAssign<&'a B>,
 
                     // 'static bounds required by output backward closure.
                     V: 'static,
@@ -563,9 +564,9 @@ macro_rules! fn_impl {
 fn_impl! {
     Exp; exp; "exp_back";
     where
-        B | 'a: Mul_<&'a V::Alloc>;
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self) => move |mut grad| {
-        grad.mul_(&self.value.exp());
+        grad.mul_assign(&self.value.exp());
         self.backward(grad);
     }
 }
@@ -573,12 +574,12 @@ fn_impl! {
 fn_impl! {
     Exp2; exp2; "exp_back";
     where
-        V::Alloc: Mul_<V::Scalar>,    
-        B | 'a: Mul_<&'a V::Alloc>;
+        V::Alloc: MulAssign<V::Scalar>,    
+        B | 'a: MulAssign<&'a V::Alloc>;
     (self) => move |mut grad| {
         let mut part_grad = self.value.exp2();
-        part_grad.mul_(ln_2!());
-        grad.mul_(&part_grad);
+        part_grad.mul_assign(ln_2!());
+        grad.mul_assign(&part_grad);
         self.backward(grad);
     }
 }

@@ -18,33 +18,70 @@ use super::{Tensor, Static, Dynamic, Strided};
 use super::layout::{Layout, DynamicLayout};
 use super::shape::{StaticShape, Shape, BroadcastShape, PartialCopy, Same, TRUE};
 use super::view::{BroadcastMut, BroadcastDynamicMut};
-use super::core_ops::{Add_, Mul_, Max_, Min_};
 use std::ops::{AddAssign, MulAssign};
+use crate::ops::{MaxAssign, MinAssign};
 use super::index::Index;
 use std::convert::TryFrom;
 use super::alloc::{StaticAlloc, DynamicAlloc};
 use super::strided_iterator::StridedIterator;
+use num_complex::{Complex, Complex32, Complex64};
 
 type BroadcastMutView<'a, Z, T, Sout: Shape, A> = Tensor<Static, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
 type BroadcastDynamicMutView<'a, Z, T, Sout: Shape, A> = Tensor<Dynamic, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
 
-/// Initial values used in reduction operators
+/// Initial values used when performing a
+/// summation along given axes
+/// for tensors of scalar type `Self`.
+/// 
+/// Implemented for all primitive numeric types
+/// and [`num_complex`] `Complex64` and `Complex32`.
+pub trait SumInit {
+    const SUM: Self;
+}
+
+/// Initial values used when performing a
+/// product along given axes
+/// for tensors of scalar type `Self`.
+/// 
+/// Implemented for all primitive numeric types
+/// and [`num_complex`] `Complex64` and `Complex32`.
+pub trait ProdInit {
+    const PROD: Self;
+}
+
+/// Initial values used when searching for
+/// the maximum along given axes
 /// for tensors of scalar type `Self`.
 /// 
 /// Implemented for all primitive numeric types.
-pub trait InitValues {
-    const SUM: Self;
-    const PROD: Self;
+pub trait MaxInit {
     const MAX: Self;
+}
+
+/// Initial values used when searching for
+/// the minimum along given axes
+/// for tensors of scalar type `Self`.
+/// 
+/// Implemented for all primitive numeric types.
+pub trait MinInit {
     const MIN: Self;
 }
 
 macro_rules! init_values_impl_float {
     ($($t:ty)*) => ($(
-        impl InitValues for $t {
+        impl SumInit for $t {
             const SUM: Self = 0.0;
+        }
+
+        impl ProdInit for $t {
             const PROD: Self = 1.0;
+        }
+
+        impl MaxInit for $t {
             const MAX: Self = <$t>::NEG_INFINITY;
+        }
+
+        impl MinInit for $t {
             const MIN: Self = <$t>::INFINITY;
         }
     )*)
@@ -54,16 +91,39 @@ init_values_impl_float! { f64 f32 }
 
 macro_rules! init_values_impl_integer {
     ($($t:ty)*) => ($(
-        impl InitValues for $t {
+        impl SumInit for $t {
             const SUM: Self = 0;
+        }
+
+        impl ProdInit for $t {
             const PROD: Self = 1;
+        }
+
+        impl MaxInit for $t {
             const MAX: Self = <$t>::MIN;
+        }
+
+        impl MinInit for $t {
             const MIN: Self = <$t>::MAX;
         }
     )*)
 }
 
 init_values_impl_integer! { u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }
+
+macro_rules! init_values_impl_complex {
+    ($($t:ty)*) => ($(
+        impl SumInit for $t {
+            const SUM: Self = Complex::new(0.0, 0.0);
+        }
+
+        impl ProdInit for $t {
+            const PROD: Self = Complex::new(1.0, 0.0);
+        }
+    )*)
+}
+
+init_values_impl_complex! { Complex64 Complex32 }
 
 /// Summation allong chosen axes of a static tensor.
 ///
@@ -157,65 +217,57 @@ pub trait MinReduce<Sout> {
     fn min_reduce(self) -> Self::Output;
 }
 
-macro_rules! reduction_impl {
+macro_rules! reduction_impls {
     (
-        $trait_name:ident; $fn_name:ident; $reduction_trait:ident; $reduction_op:ident; $init_value:expr $(;where $generic:ident: $($bound:path),*)? $(;for $scalar_type:ty)?
-    ) => {
-        impl<Y, Z, $($generic,)? S, A, D, L, Sout> $trait_name<Sout> for &Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
+        $($trait:ident, $trait_fn:ident, $reduction_trait:ident, $reduction_trait_fn:ident, $init_trait:ident, $init_value:expr);*
+    ) => {$(
+        impl<Y, Z, T, S, A, D, L, Sout> $trait<Sout> for &Tensor<Static, Y, Z, T, S, A, D, L>
         where
-            $(T: $($bound+)* Copy + 'static,)?
+            T: $reduction_trait + $init_trait + Copy + 'static,
             S: StaticShape + Clone,
             Sout: StaticShape + Clone + BroadcastShape<S>,
-            A: StaticAlloc<$($generic,)? $($scalar_type,)? Sout>,
-            for<'a> A::Alloc: BroadcastMut<'a, S, Output=BroadcastMutView<'a, Z, $($generic,)? $($scalar_type,)? S, A>>,
+            A: StaticAlloc<T, Sout>,
+            for<'a> A::Alloc: BroadcastMut<'a, S, Output=BroadcastMutView<'a, Z, T, S, A>>,
             L: Layout<S::Len>,
-            for<'a> &'a Tensor<Static, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Static, Y, Z, T, S, A, D, L>: StridedIterator<Item=&'a [T]>,
         {
             type Output = A::Alloc;
-            fn $fn_name(self) -> Self::Output {
+            fn $trait_fn(self) -> Self::Output {
                 let mut out = A::fill($init_value);
-                out.broadcast_mut().$reduction_op(self);
+                out.broadcast_mut().$reduction_trait_fn(self);
                 
                 out
             }
         }
 
-        impl<Y, Z, $($generic,)? S, A, D, L, Sout> $trait_name<Sout> for &Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>
+        impl<Y, Z, T, S, A, D, L, Sout> $trait<Sout> for &Tensor<Dynamic, Y, Z, T, S, A, D, L>
         where
-            $(T: $($bound+)* Copy + 'static,)?
+            T: $reduction_trait + $init_trait + Copy + 'static,
             S: Shape + Same<S>,
             <S as Same<S>>::Output: TRUE,
             Sout: PartialCopy + Clone + BroadcastShape<S>,
-            A: DynamicAlloc<$($generic,)? $($scalar_type,)? Sout>,
-            for<'a> A::Alloc: BroadcastDynamicMut<'a, S, Output=BroadcastDynamicMutView<'a, Z, $($generic,)? $($scalar_type,)? S, A>>,
+            A: DynamicAlloc<T, Sout>,
+            for<'a> A::Alloc: BroadcastDynamicMut<'a, S, Output=BroadcastDynamicMutView<'a, Z, T, S, A>>,
             L: Layout<S::Len>,
-            for<'a> &'a Tensor<Dynamic, Y, Z, $($generic,)? $($scalar_type,)? S, A, D, L>: StridedIterator<Item=&'a [$($generic)? $($scalar_type)?]>,
+            for<'a> &'a Tensor<Dynamic, Y, Z, T, S, A, D, L>: StridedIterator<Item=&'a [T]>,
         {
             type Output = A::Alloc;
-            fn $fn_name(self) -> Self::Output {
+            fn $trait_fn(self) -> Self::Output {
                 let mut output_shape = Vec::from(self.shape());
                 Sout::partial_copy(&mut output_shape);
 
                 let mut out: Self::Output = A::fill(Index::try_from(output_shape).unwrap(), $init_value);
-                out.broadcast_dynamic_mut(self.shape()).$reduction_op(self);
+                out.broadcast_dynamic_mut(self.shape()).$reduction_trait_fn(self);
 
                 out
             }
         }
-    };
-}
-
-reduction_impl! { Sum; sum; Add_; add_; T::SUM; where T: AddAssign, InitValues }
-reduction_impl! { Prod; prod; Mul_; mul_; T::PROD; where T: MulAssign, InitValues }
-
-// Primitive numeric types specific reductions.
-// NOTE: this restriction is due to the way Min_ and Max_
-// are implemented and NEEDS TO BE FIXED.
-macro_rules! reduction_impl_numeric {
-    ($($t:ty)*) => {$(
-        reduction_impl! { MaxReduce; max_reduce; Max_; max_; <$t>::MAX; for $t }
-        reduction_impl! { MinReduce; min_reduce; Min_; min_; <$t>::MIN; for $t }
     )*};
 }
 
-reduction_impl_numeric! { f64 f32 u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }
+reduction_impls! {
+    Sum, sum, AddAssign, add_assign, SumInit, T::SUM;
+    Prod, prod, MulAssign, mul_assign, ProdInit, T::PROD;
+    MaxReduce, max_reduce, MaxAssign, max_assign, MaxInit, T::MAX;
+    MinReduce, min_reduce, MinAssign, min_assign, MinInit, T::MIN
+}

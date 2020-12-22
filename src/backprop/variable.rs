@@ -2,6 +2,7 @@
 //! that can be used for backpropagating.
 
 use crate::tensor::prelude::*;
+use std::ops::AddAssign;
 use std::cell::RefCell;
 use std::fmt;
 use std::ops::Deref;
@@ -81,7 +82,7 @@ where
 
 impl<T, V, G, B> Variable<T, V, G, B>
 where
-    G: for<'a> Add_<&'a B>,
+    G: for<'a> AddAssign<&'a B>,
 {
     /// Add given gradient to the retained gradient if needed and
     /// backpropagate using the closure.
@@ -90,7 +91,7 @@ where
     pub fn backward(&self, grad: B) {
         let mut current_grad = self.grad.borrow_mut();
         if let Some(g) = &mut *current_grad {
-            g.add_(&grad);
+            g.add_assign(&grad);
         }
         (self.backward_closure)(grad);
     }

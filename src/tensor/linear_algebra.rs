@@ -12,13 +12,16 @@ extern crate openblas_src;
 use super::layout::Layout;
 use super::shape::{Shape1D, Shape2D, TRUE, StaticDim, Dim, StaticShape};
 use super::tensor::{Tensor, Static, Dynamic, Contiguous, Normal, Transposed};
-use cblas::{ddot, dgemm, dgemv, sdot, sgemm, sgemv, Transpose};
+use cblas::{ddot, dgemm, dgemv, sdot, sgemm, sgemv, cdotu_sub, cgemm, cgemv, zdotu_sub, zgemm, zgemv, Transpose};
 use typenum::{Eq, IsEqual, Unsigned, U2, U1};
 use std::ops::{Deref, DerefMut};
 use super::index::Index;
 use std::convert::TryFrom;
 use super::alloc::{StaticAlloc, DynamicAlloc};
 use super::{AsRawSlice, AsRawSliceMut};
+use num_complex::{Complex32, Complex64};
+use super::reduction::SumInit;
+use super::reduction::ProdInit;
 
 /// Defines the constant that should be passed to BLAS operations.
 pub trait BLASTranspose {
@@ -189,7 +192,7 @@ macro_rules! mmdot_impl {
                 self,
                 other: &Tensor<Static, Contiguous, Zrhs, $t, Shape2D<K, N>, Arhs, Drhs, Lrhs>,
             ) -> Self::Output {
-                let mut out = A::fill(0.0);
+                let mut out = A::fill(<$t>::SUM);
 
                 unsafe {
                     $blas_fn(
@@ -199,12 +202,12 @@ macro_rules! mmdot_impl {
                         M::I32,
                         N::I32,
                         K::I32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         K::I32,
                         other.as_raw_slice(),
                         N::I32,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         N::I32,
                     );
@@ -243,7 +246,7 @@ macro_rules! mmdot_impl {
                     self_shape[1], other_shape[0], self_shape, other_shape,
                 );
 
-                let mut out = A::fill(Index::try_from(vec![self_shape[0], other_shape[1]]).unwrap(), 0.0);
+                let mut out = A::fill(Index::try_from(vec![self_shape[0], other_shape[1]]).unwrap(), <$t>::SUM);
 
                 unsafe {
                     $blas_fn(
@@ -253,12 +256,12 @@ macro_rules! mmdot_impl {
                         self_shape[0] as i32,
                         other_shape[1] as i32,
                         self_shape[1] as i32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         self_shape[1] as i32,
                         other.as_raw_slice(),
                         other_shape[1] as i32,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         other_shape[1] as i32,
                     );
@@ -272,6 +275,8 @@ macro_rules! mmdot_impl {
 
 mmdot_impl! { f64; dgemm }
 mmdot_impl! { f32; sgemm }
+mmdot_impl! { Complex64; zgemm }
+mmdot_impl! { Complex32; cgemm }
 
 macro_rules! mvdot_impl {
     ($t:ty; $blas_fn:ident) => {
@@ -294,7 +299,7 @@ macro_rules! mvdot_impl {
                 self,
                 other: &Tensor<Static, Contiguous, Zrhs, $t, Shape1D<N>, Arhs, Drhs, Lrhs>,
             ) -> Self::Output {
-                let mut out: Self::Output = A::fill(0.0);
+                let mut out: Self::Output = A::fill(<$t>::SUM);
 
                 unsafe {
                     $blas_fn(
@@ -302,12 +307,12 @@ macro_rules! mvdot_impl {
                         Z::BLAS_TRANSPOSE,
                         M::I32,
                         N::I32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         N::I32,
                         other.as_raw_slice(),
                         1,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         1,
                     );
@@ -344,7 +349,7 @@ macro_rules! mvdot_impl {
                     self_shape[1], other_shape[0], self_shape, other_shape,
                 );
 
-                let mut out: Self::Output = A::fill(Index::try_from(vec![self_shape[0]]).unwrap(), 0.0);
+                let mut out: Self::Output = A::fill(Index::try_from(vec![self_shape[0]]).unwrap(), <$t>::SUM);
 
                 unsafe {
                     $blas_fn(
@@ -352,12 +357,12 @@ macro_rules! mvdot_impl {
                         Z::BLAS_TRANSPOSE,
                         self_shape[0] as i32,
                         self_shape[1] as i32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         self_shape[1] as i32,
                         other.as_raw_slice(),
                         1,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         1,
                     );
@@ -371,6 +376,8 @@ macro_rules! mvdot_impl {
 
 mvdot_impl! { f64; dgemv }
 mvdot_impl! { f32; sgemv }
+mvdot_impl! { Complex64; zgemv }
+mvdot_impl! { Complex32; cgemv }
 
 macro_rules! vvdot_impl {
     ($t:ty; $blas_fn:ident) => {
@@ -420,6 +427,11 @@ macro_rules! vvdot_impl {
 vvdot_impl! { f64; ddot }
 vvdot_impl! { f32; sdot }
 
+// NOTE: inconsistency in cblas crate API
+// FIX NEEDED
+// vvdot_impl! { Complex64; zdotu_sub }
+// vvdot_impl! { Complex32; cdotu_sub }
+
 macro_rules! mmdot_add_impl {
     ($t:ty; $blas_fn:ident) => {
         impl<Z, M, K, A, D, L, Zrhs0, N, Arhs0, Drhs0, Lrhs0, Arhs1, Drhs1, Lrhs1> DotAdd<&Tensor<Static, Contiguous, Zrhs0, $t, Shape2D<K, N>, Arhs0, Drhs0, Lrhs0>, &Tensor<Static, Contiguous, Normal, $t, Shape2D<M, N>, Arhs1, Drhs1, Lrhs1>> for &Tensor<Static, Contiguous, Z, $t, Shape2D<M, K>, A, D, L>
@@ -454,12 +466,12 @@ macro_rules! mmdot_add_impl {
                         M::I32,
                         N::I32,
                         K::I32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         K::I32,
                         rhs0.as_raw_slice(),
                         N::I32,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         N::I32,
                     );
@@ -515,12 +527,12 @@ macro_rules! mmdot_add_impl {
                         self_shape[0] as i32,
                         rhs0_shape[1] as i32,
                         self_shape[1] as i32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         self_shape[1] as i32,
                         rhs0.as_raw_slice(),
                         rhs0_shape[1] as i32,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         rhs0_shape[1] as i32,
                     );
@@ -534,6 +546,8 @@ macro_rules! mmdot_add_impl {
 
 mmdot_add_impl! { f64; dgemm }
 mmdot_add_impl! { f32; sgemm }
+mmdot_add_impl! { Complex64; zgemm }
+mmdot_add_impl! { Complex32; cgemm }
 
 macro_rules! mvdot_add_impl {
     ($t:ty; $blas_fn:ident) => {
@@ -565,12 +579,12 @@ macro_rules! mvdot_add_impl {
                         Z::BLAS_TRANSPOSE,
                         M::I32,
                         N::I32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         N::I32,
                         rhs0.as_raw_slice(),
                         1,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         1,
                     );
@@ -622,12 +636,12 @@ macro_rules! mvdot_add_impl {
                         Z::BLAS_TRANSPOSE,
                         self_shape[0] as i32,
                         self_shape[1] as i32,
-                        1.0,
+                        <$t>::PROD,
                         self.as_raw_slice(),
                         self_shape[1] as i32,
                         rhs0.as_raw_slice(),
                         1,
-                        1.0,
+                        <$t>::PROD,
                         out.as_raw_slice_mut(),
                         1,
                     );
@@ -641,3 +655,5 @@ macro_rules! mvdot_add_impl {
 
 mvdot_add_impl! { f64; dgemv }
 mvdot_add_impl! { f32; sgemv }
+mvdot_add_impl! { Complex64; zgemv }
+mvdot_add_impl! { Complex32; cgemv }

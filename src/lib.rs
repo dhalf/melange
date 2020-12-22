@@ -144,3 +144,4 @@ pub mod prelude;
 pub mod tensor;
 pub mod backprop;
 pub mod algebra;
+pub mod ops;

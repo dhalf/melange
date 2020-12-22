@@ -40,7 +40,7 @@ pub mod shape;
 pub mod strided_iterator;
 #[doc(hidden)]
 pub mod tensor;
-pub mod core_ops;
+pub mod elementwise_ops;
 #[doc(hidden)]
 pub mod prelude;
 pub mod reduction;
