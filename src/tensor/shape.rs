@@ -9,7 +9,7 @@
 //! Type operators all share the `Output` associated
 //! type that contains the type-level result of the operation the
 //! trait represents.
-//! 
+//!
 //! [`typenum`]: https://docs.rs/typenum/1.12.0/typenum/index.html
 
 use std::ops::*;
@@ -19,19 +19,19 @@ use typenum::type_operators::*;
 use typenum::{ATerm, Bit, Equal, TArr, UInt, Unsigned, B0, B1, U0, U1};
 
 /// Utility function that computes the intrinsic strides of the given `shape`.
-/// 
+///
 /// Intrinsic strides are the vector containing the consecutive products of
 /// the shape's axes in reverse order, starting from 1 and excluding the
 /// last product (number of elements). Formally:
-/// 
+///
 /// # Examples
-/// 
+///
 /// ```
-/// use melange_scratch::tensor::shape::intrinsic_strides_in_place;
-/// 
+/// use melange::tensor::shape::intrinsic_strides_in_place;
+///
 /// let a = vec![32, 3, 16, 16];
 /// let b = intrinsic_strides_in_place(a);
-/// 
+///
 /// assert_eq!(b, vec![768, 256, 16, 1]);
 /// ```
 pub fn intrinsic_strides_in_place(mut shape: Vec<usize>) -> Vec<usize> {
@@ -46,14 +46,14 @@ pub fn intrinsic_strides_in_place(mut shape: Vec<usize>) -> Vec<usize> {
 }
 
 /// This trait "aliases" [`B1`] (type-level bit one) for use in trait bounds.
-/// 
+///
 /// It is especially useful with type-level binary operators.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// use melange_scratch::tensor::shape::{Same, TRUE};
-/// 
+/// use melange::tensor::shape::{Same, TRUE};
+///
 /// fn bar<S, Z>()
 /// where
 ///     S: Same<Z>, // This bound is required by the following line
@@ -62,24 +62,24 @@ pub fn intrinsic_strides_in_place(mut shape: Vec<usize>) -> Vec<usize> {
 ///     // some code
 /// }
 /// ```
-/// 
+///
 /// [`B1`]: https://docs.rs/typenum/1.12.0/typenum/bit/struct.B1.html
 pub unsafe trait TRUE {}
 unsafe impl TRUE for B1 {}
 
 /// Zero-sized struct representing type-level dynamic dimension.
-/// 
+///
 /// It implements type-level comparisons with type-level unsigned integers and
 /// is considered equal to all of them. This involves Dyn is compatible
 /// with any dimension.
-/// 
+///
 /// # Examples
-/// 
+///
 /// Considering the following function:
 /// ```no_run
 /// use typenum::{U1, IsEqual, Eq};
-/// use melange_scratch::tensor::shape::TRUE;
-/// 
+/// use melange::tensor::shape::TRUE;
+///
 /// fn bar<D>(x: D)
 /// where
 ///     D: IsEqual<U1>, // This bound is required by the following line
@@ -88,11 +88,11 @@ unsafe impl TRUE for B1 {}
 ///     // some code
 /// }
 /// ```
-/// 
+///
 /// This compiles:
 /// ```no_run
 /// # use typenum::{U1, IsEqual, Eq};
-/// # use melange_scratch::tensor::shape::{Dyn, TRUE};
+/// # use melange::tensor::shape::{Dyn, TRUE};
 /// # fn bar<D>(x: D)
 /// # where
 /// #     D: IsEqual<U1>, // This bound is required by the following line
@@ -104,11 +104,11 @@ unsafe impl TRUE for B1 {}
 /// let a = Dyn;
 /// bar(a);
 /// ```
-/// 
+///
 /// While this doesn't:
 /// ```compile_fail
 /// # use typenum::{U1, U2, IsEqual, Eq};
-/// # use melange_scratch::tensor::shape::TRUE;
+/// # use melange::tensor::shape::TRUE;
 /// # fn bar<D>(x: D)
 /// # where
 /// #     D: IsEqual<U1>, // This bound is required by the following line
@@ -144,30 +144,30 @@ impl<U, B> Cmp<Dyn> for UInt<U, B> {
 
 /// Marker trait that provides a runtime equality check function
 /// for type-level dimensions.
-/// 
+///
 /// It defines the `runtime_eq` function that takes a runtime unsigned
 /// iteger as parameter and checks it against the type-level integer.
-/// 
+///
 /// The implementation for [`UInt`] relies on [`typenum`]'s [`Unsigned`]
 /// trait. The implementation for [`Dyn`](Dyn) always returns `true`.
-/// 
+///
 /// # Examples
 /// ```
 /// use typenum::{U1, U2};
-/// use melange_scratch::tensor::shape::{Dim, Dyn};
-/// 
+/// use melange::tensor::shape::{Dim, Dyn};
+///
 /// assert!(U1::runtime_eq(1));
 /// assert!(Dyn::runtime_eq(1));
 /// assert!(!U2::runtime_eq(1));
 /// ```
-/// 
+///
 /// [`UInt`]: https://docs.rs/typenum/1.12.0/typenum/uint/struct.UInt.html
 /// [`typenum`]: https://docs.rs/typenum/1.12.0/typenum/index.html
 /// [`Unsigned`]: https://docs.rs/typenum/1.12.0/typenum/marker_traits/trait.Unsigned.html
 pub unsafe trait Dim {
     /// Checks the equality of a type-level unsigned integer
     /// and a runtime unsigned integer.
-    /// 
+    ///
     /// See trait-level documentation.
     fn runtime_eq(dim: usize) -> bool;
 }
@@ -189,7 +189,7 @@ unsafe impl Dim for Dyn {
 }
 
 /// Marker trait implemented on type-level unsigned integers.
-/// 
+///
 /// Types that implement this trait are the only valid type-level
 /// dimensions for a [static shape](StaticShape).
 pub unsafe trait StaticDim: Dim + Unsigned {}
@@ -201,40 +201,40 @@ where
 }
 
 /// Marker trait that provides basic ways to interact with type-level shapes.
-/// 
+///
 /// It is implemented on [`typenum`]'s [`TArr`] containing a collection
 /// of type-level unsigned integers or [`Dyn`](Dyn).
-/// 
+///
 /// [`typenum`]: https://docs.rs/typenum/1.12.0/typenum/index.html
 /// [`TArr`]: https://docs.rs/typenum/1.12.0/typenum/array/struct.TArr.html
 pub unsafe trait Shape {
     /// Type-level number of axes in the shape, i.e. order of the tensor.
-    /// 
+    ///
     /// It implements [`typenum`]'s [`Unsigned`] trait.
-    /// 
+    ///
     /// # Examples
     /// ```
     /// use typenum::{U1, U2, Unsigned};
-    /// use melange_scratch::tensor::shape::{Shape, Shape4D};
-    /// 
+    /// use melange::tensor::shape::{Shape, Shape4D};
+    ///
     /// assert_eq!(<Shape4D<U1, U2, U2, U2> as Shape>::Len::USIZE, 4);
     /// ```
-    /// 
+    ///
     /// [`typenum`]: https://docs.rs/typenum/1.12.0/typenum/index.html
     /// [`Unsigned`]: https://docs.rs/typenum/1.12.0/typenum/marker_traits/trait.Unsigned.html
     type Len: Unsigned;
 
     /// Checks the given slice against the implementor type-level shape for
     /// compatibility.
-    /// 
+    ///
     /// This is the shape equivalent of [`runtime_eq`](Dim::runtime_eq) for
     /// dimensions and it uses this function under the hood on each axis.
-    /// 
+    ///
     /// # Examples
     /// ```
     /// use typenum::{U1, U2, Unsigned};
-    /// use melange_scratch::tensor::shape::{Shape, Shape4D};
-    /// 
+    /// use melange::tensor::shape::{Shape, Shape4D};
+    ///
     /// assert!(<Shape4D<U1, U2, U2, U2> as Shape>::runtime_compat(&[1, 2, 2, 2]));
     /// ```
     fn runtime_compat(shape: &[usize]) -> bool;
@@ -276,8 +276,8 @@ pub unsafe trait PartialCopy: Shape {
     /// # Examples
     /// ```
     /// use typenum::{U1, U2, Unsigned};
-    /// use melange_scratch::tensor::shape::{Dyn, PartialCopy, Shape4D};
-    /// 
+    /// use melange::tensor::shape::{Dyn, PartialCopy, Shape4D};
+    ///
     /// let mut shape = vec![6, 4, 4, 2];
     /// <Shape4D<U1, Dyn, Dyn, U2> as PartialCopy>::partial_copy(&mut shape);
     /// assert_eq!(shape, vec![1, 4, 4, 2]);
@@ -314,46 +314,46 @@ where
 }
 
 /// Marker trait providing further ways to interact with static shapes.
-/// 
+///
 /// Implemented on shapes containing type-level unsigned integers only.
 pub unsafe trait StaticShape: Shape {
     /// Type-level number of elements in the tensor, i.e. product of all dimensions
     /// of the shape.
-    /// 
+    ///
     /// It implements [`typenum`]'s [`Unsigned`] trait.
-    /// 
+    ///
     /// # Examples
     /// ```
     /// use typenum::{U1, U2, Unsigned};
-    /// use melange_scratch::tensor::shape::{StaticShape, Shape4D};
-    /// 
+    /// use melange::tensor::shape::{StaticShape, Shape4D};
+    ///
     /// assert_eq!(<Shape4D<U1, U2, U2, U2> as StaticShape>::NumElements::USIZE, 8);
     /// ```
-    /// 
+    ///
     /// [`typenum`]: https://docs.rs/typenum/1.12.0/typenum/index.html
     /// [`Unsigned`]: https://docs.rs/typenum/1.12.0/typenum/marker_traits/trait.Unsigned.html
     type NumElements: Unsigned;
 
     /// Outputs a [`Vec`](std::vec::Vec) containing the runtime version of the shape.
-    /// 
+    ///
     /// # Examples
     /// ```
     /// use typenum::{U1, U2, Unsigned};
-    /// use melange_scratch::tensor::shape::{StaticShape, Shape4D};
-    /// 
+    /// use melange::tensor::shape::{StaticShape, Shape4D};
+    ///
     /// assert_eq!(<Shape4D<U1, U2, U2, U2> as StaticShape>::to_vec(), vec![1, 2, 2, 2]);
     /// ```
     fn to_vec() -> Vec<usize>;
 
     /// Outputs a `Vec` containing the intrinsic strides of the shape.
-    /// 
+    ///
     /// Note that these strides do not account for the real layout: see
     /// [`intrinsic_strides_in_place`](intrinsic_strides_in_place).
     /// # Examples
     /// ```
     /// use typenum::{U1, U2, Unsigned};
-    /// use melange_scratch::tensor::shape::{StaticShape, Shape4D};
-    /// 
+    /// use melange::tensor::shape::{StaticShape, Shape4D};
+    ///
     /// assert_eq!(<Shape4D<U1, U2, U2, U2> as StaticShape>::strides(), vec![8, 4, 2, 1]);
     /// ```
     fn strides() -> Vec<usize>;
@@ -399,14 +399,14 @@ where
 
 /// Binary type operator that check the compatibility of two type-level
 /// shapes.
-/// 
+///
 /// Outputs B1 if the implementor shape is compatible with Rhs
 /// i.e. all the dimensions on the respective axes are compatible.
-/// 
+///
 /// # Examples
 /// Considering the following function and some type `Foo<T>`:
 /// ```no_run
-/// use melange_scratch::tensor::shape::{Same, TRUE};
+/// use melange::tensor::shape::{Same, TRUE};
 /// # use std::marker::PhantomData;
 /// # struct Foo<T> {
 /// #     _phantoms: PhantomData<T>,
@@ -419,7 +419,7 @@ where
 /// #         }
 /// #     }
 /// # }
-/// 
+///
 /// fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
 /// where
 ///     S: Same<Z>, // This bound is required by the following line
@@ -428,12 +428,12 @@ where
 ///     // some code
 /// }
 /// ```
-/// 
+///
 /// This compiles:
 /// ```no_run
 /// use typenum::{U1, TArr};
-/// use melange_scratch::tensor::shape::Shape2D;
-/// # use melange_scratch::tensor::shape::{Same, TRUE};
+/// use melange::tensor::shape::Shape2D;
+/// # use melange::tensor::shape::{Same, TRUE};
 /// # use std::marker::PhantomData;
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
@@ -455,7 +455,7 @@ where
 /// #         }
 /// #     }
 /// # }
-/// 
+///
 /// let a: Foo<Shape2D<U1, U1>> = Foo::new();
 /// let b: Foo<Shape2D<U1, U1>> = Foo::new();
 /// bar(a, b);
@@ -463,8 +463,8 @@ where
 /// While this doesn't:
 /// ```compile_fail
 /// use typenum::{U1, U2};
-/// use melange_scratch::tensor::shape::Shape2D;
-/// # use melange_scratch::tensor::shape::{Same, TRUE};
+/// use melange::tensor::shape::Shape2D;
+/// # use melange::tensor::shape::{Same, TRUE};
 /// # use std::marker::PhantomData;
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
@@ -486,7 +486,7 @@ where
 /// #         }
 /// #     }
 /// # }
-/// 
+///
 /// let a: Foo<Shape2D<U1, U1>> = Foo::new();
 /// let b: Foo<Shape2D<U1, U2>> = Foo::new();
 /// bar(a, b);
@@ -511,7 +511,7 @@ where
 
 /// Binary type operator that check whether two type-level shapes
 /// can be broadcasted.
-/// 
+///
 /// Outputs B1 if the implementor shape can be broadcasted to Rhs.
 /// Broadcasting is valid if for all axes in reverse order:
 /// * dimensions are equal ([`Dyn`](Dyn) is included but runtime check should be done)
@@ -519,11 +519,11 @@ where
 /// * the axis only exist in the largest shape
 ///
 /// Note that this DOES NOT require both shapes to have the same length.
-/// 
+///
 /// # Examples
 /// Considering the following function and some type `Foo<T>`:
 /// ```no_run
-/// use melange_scratch::tensor::shape::{BroadcastShape, TRUE};
+/// use melange::tensor::shape::{BroadcastShape, TRUE};
 /// # use std::marker::PhantomData;
 /// # struct Foo<T> {
 /// #     _phantoms: PhantomData<T>,
@@ -536,7 +536,7 @@ where
 /// #         }
 /// #     }
 /// # }
-/// 
+///
 /// fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
 /// where
 ///     S: BroadcastShape<Z>, // This bound is required by the following line
@@ -545,12 +545,12 @@ where
 ///     // some code
 /// }
 /// ```
-/// 
+///
 /// This compiles:
 /// ```no_run
 /// use typenum::{U1, U2, U3, U4, TArr};
-/// use melange_scratch::tensor::shape::{Shape3D, Shape4D};
-/// # use melange_scratch::tensor::shape::{BroadcastShape, TRUE};
+/// use melange::tensor::shape::{Shape3D, Shape4D};
+/// # use melange::tensor::shape::{BroadcastShape, TRUE};
 /// # use std::marker::PhantomData;
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
@@ -572,7 +572,7 @@ where
 /// #         }
 /// #     }
 /// # }
-/// 
+///
 /// let a: Foo<Shape3D<U1, U3, U1>> = Foo::new();
 /// let b: Foo<Shape4D<U4, U2, U3, U2>> = Foo::new();
 /// bar(a, b);
@@ -580,8 +580,8 @@ where
 /// While this doesn't:
 /// ```compile_fail
 /// use typenum::{U2, U3};
-/// use melange_scratch::tensor::shape::{Shape2D};
-/// # use melange_scratch::tensor::shape::{BroadcastShape, TRUE};
+/// use melange::tensor::shape::{Shape2D};
+/// # use melange::tensor::shape::{BroadcastShape, TRUE};
 /// # use std::marker::PhantomData;
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
@@ -603,7 +603,7 @@ where
 /// #         }
 /// #     }
 /// # }
-/// 
+///
 /// let a: Foo<Shape2D<U2, U3>> = Foo::new();
 /// let b: Foo<Shape2D<U3, U3>> = Foo::new();
 /// bar(a, b);
@@ -630,26 +630,27 @@ where
     A: BroadcastShape<ARhs>,
     Or<Or<Eq<S, SRhs>, Eq<S, U1>>, Eq<SRhs, U1>>: BitAnd<<A as BroadcastShape<ARhs>>::Output>,
 {
-    type Output = And<Or<Or<Eq<S, SRhs>, Eq<S, U1>>, Eq<SRhs, U1>>, <A as BroadcastShape<ARhs>>::Output>;
+    type Output =
+        And<Or<Or<Eq<S, SRhs>, Eq<S, U1>>, Eq<SRhs, U1>>, <A as BroadcastShape<ARhs>>::Output>;
 }
 
 /// Type operator that strides a dimension.
-/// 
+///
 /// Outputs the result of striding the implementor dimension with Rhs.
-/// 
+///
 /// The result of striding [`Dyn`] or striding by [`Dyn`] is always [`Dyn`].
-/// 
+///
 /// # Examples
 /// ```
 /// use typenum::{U2, U4, Unsigned};
-/// use melange_scratch::tensor::shape::{StridedDim, Dim, Dyn};
-/// 
+/// use melange::tensor::shape::{StridedDim, Dim, Dyn};
+///
 /// assert!(<<U4 as StridedDim<U2>>::Output as Dim>::runtime_eq(2));
-/// 
+///
 /// // It works because Dyn can be equal to 42!
 /// assert!(<<U4 as StridedDim<Dyn>>::Output as Dim>::runtime_eq(42));
 /// ```
-/// 
+///
 /// [`Dyn`]: Dyn
 pub unsafe trait StridedDim<Rhs> {
     /// Output type.
@@ -676,21 +677,21 @@ unsafe impl<U, B> StridedDim<Dyn> for UInt<U, B> {
 }
 
 /// Type operator that strides a static shape.
-/// 
+///
 /// Outputs the shape corresponding to the striding of the implementor
 /// shape with Rhs.
-/// 
+///
 /// This trait adds a further guarantee to `StridedShapeDyn` which is that
 /// the output is guaranteed to be static. This means that the two inputs
 /// must be coercible: they cannot both contain `Dyn` on the same axis.
 ///
 /// Note that this requires both inputs to have the same length.
-/// 
+///
 /// # Examples
 /// ```
 /// use typenum::{U2, U4, Unsigned};
-/// use melange_scratch::tensor::shape::{Shape2D, StridedShape, StaticShape};
-/// 
+/// use melange::tensor::shape::{Shape2D, StridedShape, StaticShape};
+///
 /// assert_eq!(<<Shape2D<U4, U2> as StridedShape<Shape2D<U2, U2>>>::Output as StaticShape>::to_vec(), vec![2, 1]);
 /// ```
 pub unsafe trait StridedShape<Rhs> {
@@ -712,18 +713,18 @@ where
 }
 
 /// Type operator that strides a shape.
-/// 
+///
 /// Outputs the shape corresponding to the striding of the implementor
 /// shape with Rhs.
 ///
 /// Note that this requires both shapes to have the same length.
 /// The is just guaranteed to be `Shape` i.e. it can still be dynamic.
-/// 
+///
 /// # Examples
 /// ```
 /// use typenum::{U2, U4, Unsigned};
-/// use melange_scratch::tensor::shape::{Shape2D, StridedShapeDyn, Shape, Dyn};
-/// 
+/// use melange::tensor::shape::{Shape2D, StridedShapeDyn, Shape, Dyn};
+///
 /// // It works because Dyn can be equal to 42!
 /// assert!(<<Shape2D<Dyn, U4> as StridedShapeDyn<Shape2D<U2, U2>>>::Output as Shape>::runtime_compat(&[42, 2]));
 /// ```
@@ -746,7 +747,7 @@ where
 }
 
 /// Conditionnal trait operator.
-/// 
+///
 /// This reproduces a if/else block at the type level:
 /// * outputs T if the implementor is B1,
 /// * outputs Else otherwise.
@@ -766,12 +767,12 @@ impl<T, Else> If<T, Else> for B0 {
 /// Trait operator that replaces the dimension of the axis
 /// having the (0-starting) index Ax (a type-level unsigned integer)
 /// with U1.
-/// 
+///
 /// # Example
 /// ```
 /// use typenum::{U0, U2};
-/// use melange_scratch::tensor::shape::{Shape2D, StaticShape, Reduction};
-/// 
+/// use melange::tensor::shape::{Shape2D, StaticShape, Reduction};
+///
 /// assert_eq!(<<Shape2D<U2, U2> as Reduction<U0>>::Output as StaticShape>::to_vec(), vec![1, 2]);
 /// ```
 pub trait Reduction<Ax> {

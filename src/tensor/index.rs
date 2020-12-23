@@ -4,15 +4,15 @@
 //! The current implementation of [`Index<U>`](Index) only wraps a
 //! [`Vec<usize>`](Vec) and imposes the constraint that its length be `U`
 //! where `U` is a type-level integer (see [`typenum`]).
-//! 
+//!
 //! [`typenum`]: https://docs.rs/typenum/1.12.0/typenum/index.html
 
 use std::convert::TryFrom;
+use std::fmt;
 use std::io::{Error, ErrorKind};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use typenum::Unsigned;
-use std::fmt;
 
 #[derive(Clone)]
 /// Runtime shape of length `U`. See module-level documentation.

@@ -1,10 +1,11 @@
 //! Contains basic mathematical operations at the tensor level.
-//! 
+//!
 //! All operations are wrapped in their own trait which eases reuse.
+//! See the [`ops`](crate::ops) module.
 //!
 //! There are two families of operations: functionnal operations
 //! and in-place operations.
-//! 
+//!
 //! Functionnal operations are methods that immutably borrow `self` (and
 //! optionnaly borrow other tensors) and return a new tensor. They are
 //! actually defined with traits that move their inputs to be compatible
@@ -15,36 +16,37 @@
 //! immutably borrow other tensors) to directly mutate its data. The actual
 //! implementation, in this case, does borrow `self` mutably but moves other
 //! parameters. Once again the trick is to implement for references.
-//! 
+//!
 //! Functionnal operations are interesting when backpropagating because they
 //! preserve operands whereas in-place operations reduce the memory footprint.
-//! 
+//!
 //! Both families of operations perform ad-hoc parallel computation
 //! acording to how data is stored. Note that operations on more than one
 //! tensor require all tensors to have compatible shapes (all dimensions
 //! must be equal or `Dyn`). If this is not the case consider broadcasting.
-//! 
+//!
 //! Note that functionnal operations actually use in-place operations
 //! under the hood.
 //!
 //! Note that some operations are only available for tensors based on float
 //! types `f32` and `f64` or primitive integers.
 //! This is inherent to how numeric types are treated in rust.
-//! The doc of all traits clearly mentions which kind of tensors implement them.
-//! 
+//!
 //! Those operations rely on the scalar operations implemented for the underlying
-//! scalar data type `T` of the tensor. Please refer to the relevant methods defined
-//! on primitive types.
+//! scalar data type `T` of the tensor via the implementation of ops traits on
+//! scalars in the [`ops`](crate::ops) module.
+//! Please refer to the relevant methods defined on primitive types for further
+//! details.
 
-use std::ops::*;
-use crate::ops::*;
-use num_complex::{Complex32, Complex64};
-use super::strided_iterator::{StridedIterator, StridedIteratorMut};
-use crate::tensor::{Tensor, Static, Dynamic};
 use super::layout::Layout;
-use super::shape::{Shape, Same, TRUE};
+use super::shape::{Same, Shape, TRUE};
+use super::strided_iterator::{StridedIterator, StridedIteratorMut};
 use crate::gat::{RefMutGat, StreamingIterator};
-use crate::tensor::alloc::{StaticAlloc, DynamicAlloc, AllocLike};
+use crate::ops::*;
+use crate::tensor::alloc::{AllocLike, DynamicAlloc, StaticAlloc};
+use crate::tensor::{Dynamic, Static, Tensor};
+use num_complex::{Complex32, Complex64};
+use std::ops::*;
 
 macro_rules! assert_shape_eq {
     ($lhs:expr, $rhs:expr) => {
@@ -87,7 +89,7 @@ macro_rules! binary_inplace_op_impls {
             S: Shape,
             L: Layout<S::Len>,
             Lrhs: Layout<S::Len>,
-        {  
+        {
             fn $trait_fn(&mut self, rhs: &Tensor<Static, Yrhs, Zrhs, T, S, Arhs, Drhs, Lrhs>) {
                 op_unchecked! { self rhs }
             }
@@ -258,7 +260,6 @@ macro_rules! two_param_inplace_op_impls {
             ($var:ty) => { $var };
             () => { T };
         }
-        
         impl<X, Y, Z, T, S, A, D, L> $trait<isset_or_default!($($param_type0)?), isset_or_default!($($param_type1)?)> for Tensor<X, Y, Z, T, S, A, D, L>
         where
             for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[T]>>,
@@ -551,6 +552,6 @@ macro_rules! conversion_op_impls {
 conversion_op_impls! {
     Re, re;
     Im, im;
-    //Abs, abs;
+    Norm, norm;
     Arg, arg
 }

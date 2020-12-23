@@ -62,9 +62,12 @@ mod tests {
         use std::f64::consts::FRAC_PI_2;
 
         let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![
-            FRAC_PI_2.cos(), -FRAC_PI_2.sin(),
-            FRAC_PI_2.sin(), FRAC_PI_2.cos()
-        ]).unwrap();
+            FRAC_PI_2.cos(),
+            -FRAC_PI_2.sin(),
+            FRAC_PI_2.sin(),
+            FRAC_PI_2.cos(),
+        ])
+        .unwrap();
         let b: StaticTensor<f64, Shape2D<U2, U1>> = Tensor::try_from(vec![1.0, 0.0]).unwrap();
         let c: StaticTensor<f64, Shape2D<U2, U1>> = Tensor::try_from(vec![0.0, 1.0]).unwrap();
         assert!(a.dot(&b).sub(&c) < f64::EPSILON);
@@ -75,9 +78,12 @@ mod tests {
         use std::f64::consts::FRAC_PI_2;
 
         let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![
-            FRAC_PI_2.cos(), -FRAC_PI_2.sin(),
-            FRAC_PI_2.sin(), FRAC_PI_2.cos()
-        ]).unwrap();
+            FRAC_PI_2.cos(),
+            -FRAC_PI_2.sin(),
+            FRAC_PI_2.sin(),
+            FRAC_PI_2.cos(),
+        ])
+        .unwrap();
         let b: StaticTensor<f64, Shape1D<U2>> = Tensor::try_from(vec![1.0, 0.0]).unwrap();
         let c: StaticTensor<f64, Shape1D<U2>> = Tensor::try_from(vec![0.0, 1.0]).unwrap();
         assert!(a.dot(&b).sub(&c) < f64::EPSILON);
@@ -93,11 +99,13 @@ mod tests {
     #[test]
     fn mmdot_add() {
         use std::f64::consts::FRAC_PI_2;
-        
         let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![
-            FRAC_PI_2.cos(), -FRAC_PI_2.sin(),
-            FRAC_PI_2.sin(), FRAC_PI_2.cos()
-        ]).unwrap();
+            FRAC_PI_2.cos(),
+            -FRAC_PI_2.sin(),
+            FRAC_PI_2.sin(),
+            FRAC_PI_2.cos(),
+        ])
+        .unwrap();
         let b: StaticTensor<f64, Shape2D<U2, U1>> = Tensor::try_from(vec![1.0, 0.0]).unwrap();
         let c: StaticTensor<f64, Shape2D<U2, U1>> = Tensor::try_from(vec![1.0, 1.0]).unwrap();
         let d: StaticTensor<f64, Shape2D<U2, U1>> = Tensor::try_from(vec![1.0, 2.0]).unwrap();
@@ -107,11 +115,13 @@ mod tests {
     #[test]
     fn mvdot_add() {
         use std::f64::consts::FRAC_PI_2;
-        
         let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![
-            FRAC_PI_2.cos(), -FRAC_PI_2.sin(),
-            FRAC_PI_2.sin(), FRAC_PI_2.cos()
-        ]).unwrap();
+            FRAC_PI_2.cos(),
+            -FRAC_PI_2.sin(),
+            FRAC_PI_2.sin(),
+            FRAC_PI_2.cos(),
+        ])
+        .unwrap();
         let b: StaticTensor<f64, Shape1D<U2>> = Tensor::try_from(vec![1.0, 0.0]).unwrap();
         let c: StaticTensor<f64, Shape1D<U2>> = Tensor::try_from(vec![1.0, 1.0]).unwrap();
         let d: StaticTensor<f64, Shape1D<U2>> = Tensor::try_from(vec![1.0, 2.0]).unwrap();
@@ -120,13 +130,13 @@ mod tests {
 
     #[test]
     fn backprop() {
-        use crate::backprop::variable::Variable;
-        use crate::backprop::variable::New;
+        let a: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let b: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
 
-        let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
-        let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
-
-        let g: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+        let g: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
 
         let a = Variable::new(a, true);
         let b = Variable::new(b, true);
@@ -134,14 +144,15 @@ mod tests {
         let c = Variable::clone(&a) + b;
         c.backward(g);
 
-        let d: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+        let d: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
         assert_eq!(a.grad().unwrap(), d);
     }
 }
 
-pub mod gat;
-pub mod prelude;
-pub mod tensor;
 pub mod backprop;
-pub mod algebra;
+pub mod gat;
 pub mod ops;
+pub mod prelude;
+pub mod scalar_traits;
+pub mod tensor;

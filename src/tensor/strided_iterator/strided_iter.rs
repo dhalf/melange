@@ -6,17 +6,17 @@ use typenum::Unsigned;
 
 /// Iterator that yields immutable chunks of data from a
 /// strided tensor.
-/// 
+///
 /// Chunks correspond to the abstract layout of the tensor
 /// as defined in its [`Layout`](crate::tensor::layout::Layout)
 /// and not to the underlying real layout of its data.
 /// For instance, it will repeatedly yield the same actual
 /// slices in the case of a broadcasted tensor.
-/// 
+///
 /// `StridedIter` is the output of
 /// [`StridedIterator::strided_iter`](super::StridedIterator::strided_iter)
 /// on a strided [`Tensor`](crate::tensor::Tensor)
-/// 
+///
 /// # Safety
 /// `StridedIter` internally uses raw poiters to speed up
 /// iteration. Proper bound checking is done to avoid potential
@@ -89,7 +89,10 @@ where
         assert!(
             self.offset + self.chunk_size <= self.len,
             "Buffer overflow detected in StridedIter. Aborting! {:?} {:?} {:?} {:?}",
-            self.offset, self.chunk_size, self.len, self.dead,
+            self.offset,
+            self.chunk_size,
+            self.len,
+            self.dead,
         );
 
         let chunk = unsafe {

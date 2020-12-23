@@ -7,33 +7,34 @@ use super::*;
 use crate::tensor::index::Index;
 use crate::tensor::layout::{DynamicLayout, Layout, StaticLayout};
 use crate::tensor::shape::{
-    intrinsic_strides_in_place, BroadcastShape, StaticShape, StridedShape, StridedShapeDyn, TRUE, Same,
+    intrinsic_strides_in_place, BroadcastShape, Same, StaticShape, StridedShape, StridedShapeDyn,
+    TRUE,
 };
 use std::convert::TryFrom;
 use std::marker::PhantomData;
-use typenum::{Unsigned, IsEqual};
+use typenum::{IsEqual, Unsigned};
 
 /// Zero cost extension of the tensor to match infered or
 /// given static type-level output shape.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data) that repeats data
 /// on the axes that need to be extended.
-/// 
+///
 /// Broadcasting is valid if the following requirements
 /// are met for all axes in reverse order:
 /// * dimensions are equal
 /// * one of the dimensions is U1
 /// * the axis only exist in the largest shape
-/// 
+///
 /// If shapes cannot be broadcasted, the code will
 /// just fail to compile thanks to compile time checks.
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
-/// 
+///
 /// let a: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![1, 2]).unwrap();
 /// let a = Broadcast::<Shape2D<U2, U2>>::broadcast(&a);
 /// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 1, 2]).unwrap();
@@ -58,28 +59,28 @@ pub trait BroadcastMut<'a, Sout> {
 
 /// Zero cost extension of the tensor to match given runtime shape
 /// ([`Index`](crate::tensor::index::Index)).
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data) that repeats data
 /// on the axes that need to be extended.
-/// 
+///
 /// Broadcasting is valid if the following requirements
 /// are met for all axes in reverse order:
 /// * dimensions are equal
 /// * one of the dimensions is U1
 /// * the axis only exist in the largest shape
-/// 
+///
 /// # Panics
 /// This method panics if the tensor cannot be broadcasted
 /// to the given `runtime_shape`. It also panics if the given
 /// `runtime_shape` and infered or given type-level `Shape`
 /// are incompatible.
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
-/// 
+///
 /// let a: DynamicTensor<i32, Shape1D<Dyn>> = Tensor::try_from(vec![1, 2]).unwrap();
 /// let a = BroadcastDynamic::<Shape2D<U2, Dyn>>::broadcast_dynamic(&a, Index::<U2>::try_from(vec![2, 2]).unwrap());
 /// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 1, 2]).unwrap();
@@ -109,18 +110,18 @@ where
 }
 
 /// Zero cost striding of the tensor with static type-level strides.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data) that keeps data
 /// according to the given strides.
-/// 
+///
 /// Output shape is automatically infered at compile time.
-/// 
+///
 /// # Examples
 /// ```ignore
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U2, U4};
-/// 
+///
 /// let a: StaticTensor<i32, Shape2D<U4, U4>> = Tensor::try_from(vec![
 ///     1,  2,  3,  4,
 ///     5,  6,  7,  8,
@@ -149,20 +150,20 @@ pub trait StrideMut<'a, Sout> {
 }
 
 /// Zero cost striding of the tensor with runtime strides.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data) that keeps data
 /// according to the given strides.
-/// 
+///
 /// # Panics
 /// This method panics if the given `runtime_strides` and the infered
 /// or given type-level `Strides` are incompatible.
-/// 
+///
 /// # Examples
 /// ```ignore
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U2, U4};
-/// 
+///
 /// let a: DynamicTensor<i32, Shape2D<Dyn, U4>> = Tensor::try_from(vec![
 ///     1,  2,  3,  4,
 ///     5,  6,  7,  8,
@@ -197,16 +198,16 @@ where
 }
 
 /// Zero cost transposition of the tensor (i.e. axes order reversal).
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data) with reversed shape
 /// and strides.
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
-/// 
+///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, -1, 0, 1]).unwrap();
 /// let a = a.transpose();
 /// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 0, -1, 1]).unwrap();
@@ -230,15 +231,15 @@ pub trait TransposeMut<'a> {
 }
 
 /// Zero cost "copy" of the tensor.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data).
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
-/// 
+///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 0, 0, 1]).unwrap();
 /// let b = a.as_view();
 /// assert_eq!(a, b);
@@ -262,22 +263,22 @@ pub trait AsViewMut<'a> {
 
 /// Zero cost reshaping of a contiguous tensor to specified
 /// type-level shape.
-/// 
+///
 /// The tensor is reinterpreted as a tensor with a
 /// different but compatible type-level shape. Shapes are compatible
 /// if they have the same number of elements.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data) with a different layout.
-/// 
+///
 /// If type-level shapes are not compatible, the code will just
 /// fail to compile.
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U2, U4};
-/// 
+///
 /// let a: StaticTensor<i32, Shape1D<U4>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
 /// let a = Reshape::<Shape2D<U2, U2>>::reshape(&a);
 /// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
@@ -302,25 +303,25 @@ pub trait ReshapeMut<'a, Sout> {
 
 /// Zero cost reshaping of a contiguous tensor to given runtime shape
 /// ([`Index`](crate::tensor::index::Index)).
-/// 
+///
 /// The tensor is reinterpreted as a tensor with a
 /// different but compatible runtime shape. Shapes are compatible
 /// if they have the same number of elements.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data) with a different layout.
-/// 
+///
 /// # Panics
 /// This method panics if given `runtime_shape` doesn't have the
 /// same number of elements as the tensor's shape. It also panics
 /// if given `runtime_shape` and infered or given type-level shape
 /// `Sout` are incompatible.
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U2, U4};
-/// 
+///
 /// let a: DynamicTensor<i32, Shape1D<Dyn>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
 /// let a = ReshapeDynamic::<Shape2D<Dyn, U2>>::reshape_dynamic(&a, Index::<U2>::try_from(vec![2, 2]).unwrap());
 /// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
@@ -351,19 +352,19 @@ where
 
 /// Zero cost reinterpretation of a dynamic tensor as a static
 /// tensor with specified static type-level shape.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data).
-/// 
+///
 /// # Panics
 /// This method panics if the tensor's runtime shape and
 /// the specified static type-level shape are different.
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U2, U4};
-/// 
+///
 /// let a: DynamicTensor<i32, Shape2D<Dyn, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
 /// let a = AsStatic::<Shape2D<U2, U2>>::as_static(&a);
 /// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
@@ -388,15 +389,15 @@ pub trait AsStaticMut<'a, Sout> {
 
 /// Zero cost reinterpretation of a static tensor as dynamic
 /// keeping the same type-level shape.
-/// 
+///
 /// Outputs a view on the tensor (i.e. a tensor whose data is
 /// a borrowing of another tensor's data).
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U2, U4};
-/// 
+///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
 /// let a = a.as_dynamic();
 /// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
@@ -514,7 +515,6 @@ macro_rules! dynamic_broadcast_impl {
                     current_shape,
                     runtime_shape,
                 );
-        
                 let current_extrinsic_strides: Vec<_> = self
                     .strides()
                     .iter()
@@ -535,7 +535,6 @@ macro_rules! dynamic_broadcast_impl {
                         *z = x * *y;
                     }
                 }
-        
                 let new_opt_chunk_size = match new_strides
                     .iter()
                     .rev()
@@ -546,9 +545,7 @@ macro_rules! dynamic_broadcast_impl {
                     Some((_, y)) => y,
                     None => 1,
                 };
-        
                 let new_num_elements = runtime_shape.iter().product();
-        
                 Tensor {
                     data: & $( $mut_ )? self.data,
                     layout: DynamicLayout {
@@ -601,7 +598,6 @@ macro_rules! static_stride_impl {
                     Some((_, y)) => y,
                     None => 1,
                 };
-        
                 Tensor {
                     data: & $( $mut_ )? self.data,
                     layout: DynamicLayout {
@@ -665,9 +661,7 @@ macro_rules! dynamic_stride_impl {
                     Some((_, y)) => y,
                     None => 1,
                 };
-        
                 let new_num_elements = new_shape.iter().product();
-        
                 Tensor {
                     data: & $( $mut_ )? self.data,
                     layout: DynamicLayout {
@@ -793,9 +787,7 @@ macro_rules! dynamic_reshape_impl {
                     num_elements,
                     new_num_elements,
                 );
-        
                 let new_strides = intrinsic_strides_in_place(runtime_shape.clone().into());
-                
                 Tensor {
                     data: & $( $mut_ )? self.data,
                     layout: DynamicLayout {

@@ -1,19 +1,45 @@
-use num_complex::{Complex64, Complex32};
+//! Contains traits that wrap
+//! common mathematical operations.
+//!
+//! It extends `[std::ops]`(std::ops).
+//!
+//! These traits make it possible to
+//! write bounds on the capabilities
+//! of types to be involved in specific
+//! maths operations.
+//!
+//! They are available in two flavor:
+//! * functional style ops such as `Add`
+//! that allow backpropagating,
+//! * in-place ops such as `AddAssign`
+//! that are more efficient in terms of
+//! memory footprint.
+//!
+//! They are implemented on primitive
+//! numeric types, num_complex's
+//! [`Complex64`] and [`Complex32`]
+//! types and on all tensors whose
+//! scalar type implements them.
+//!
+//! [`Complex64`]: https://docs.rs/num-complex/0.2.4/num_complex/type.Complex64.html
+//! [`Complex32`]: https://docs.rs/num-complex/0.2.4/num_complex/type.Complex32.html
+
+use num_complex::{Complex32, Complex64};
 
 /// Four quadrant arctangent operator.
-/// 
+///
 /// Computes the four quadrant arctengent of `self` (`y`)
 /// and `rhs` (`x`) in radians as follows:
 /// * `x = 0`, `y = 0`: `0`
 /// * `x >= 0`: `arctan(y/x)` -> `[-pi/2, pi/2]`
 /// * `y >= 0`: `arctan(y/x) + pi` -> `(pi/2, pi]`
 /// * `y < 0`: `arctan(y/x) - pi` -> `(-pi, -pi/2)`
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_4};
 ///
@@ -24,7 +50,7 @@ use num_complex::{Complex64, Complex32};
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::FRAC_PI_2;
 ///
@@ -32,7 +58,7 @@ use num_complex::{Complex64, Complex32};
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![FRAC_PI_2, FRAC_PI_2, -FRAC_PI_2, FRAC_PI_2]).unwrap();
 /// assert!(a.atan2(0.0).sub(&b).abs() < f64::EPSILON);
 /// ```
-pub trait Atan2<Rhs=Self> {
+pub trait Atan2<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the four quadrant arctangent operation.
@@ -40,14 +66,14 @@ pub trait Atan2<Rhs=Self> {
 }
 
 /// Copysign operator.
-/// 
+///
 /// Result is composed of the magnitude of `self` and the sign of `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, 3.0, 4.0]).unwrap();
@@ -57,14 +83,14 @@ pub trait Atan2<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -1.0, 5.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, -2.0, -1.0, -5.0]).unwrap();
 /// assert_eq!(a.copysign(-5.0), b);
 /// ```
-pub trait Copysign<Rhs=Self> {
+pub trait Copysign<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the copysign operation.
@@ -72,14 +98,14 @@ pub trait Copysign<Rhs=Self> {
 }
 
 /// Quotient of Euclidean division operator.
-/// 
+///
 /// Computes the quotient of Euclidean division of `self` by `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![7, 7, -7, -7]).unwrap();
@@ -89,14 +115,14 @@ pub trait Copysign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![7, -7]).unwrap();
 /// let b: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![1, -2]).unwrap();
 /// assert_eq!(a.div_euclid(4), b);
 /// ```
-pub trait DivEuclid<Rhs=Self> {
+pub trait DivEuclid<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the quotient of Euclidean division operation.
@@ -104,14 +130,14 @@ pub trait DivEuclid<Rhs=Self> {
 }
 
 /// Remainder of Euclidean division operator.
-/// 
+///
 /// Computes the least nonnegative remainder of `self (mod rhs)`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![7, -7, 7, -7]).unwrap();
@@ -121,14 +147,14 @@ pub trait DivEuclid<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![7, -7]).unwrap();
 /// let b: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![3, 1]).unwrap();
 /// assert_eq!(a.rem_euclid(4), b);
 /// ```
-pub trait RemEuclid<Rhs=Self> {
+pub trait RemEuclid<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the remainder of Euclidean division operation.
@@ -136,14 +162,14 @@ pub trait RemEuclid<Rhs=Self> {
 }
 
 /// Max operator.
-/// 
+///
 /// Computes the max of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -153,14 +179,14 @@ pub trait RemEuclid<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, 10.0, 5.0, 6.0]).unwrap();
 /// assert_eq!(a.max(5.0), b);
 /// ```
-pub trait Max<Rhs=Self> {
+pub trait Max<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the max operation.
@@ -168,14 +194,14 @@ pub trait Max<Rhs=Self> {
 }
 
 /// Min operator.
-/// 
+///
 /// Computes the min of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -185,14 +211,14 @@ pub trait Max<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 5.0, 3.0, 5.0]).unwrap();
 /// assert_eq!(a.min(5.0), b);
 /// ```
-pub trait Min<Rhs=Self> {
+pub trait Min<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the max operation.
@@ -200,14 +226,14 @@ pub trait Min<Rhs=Self> {
 }
 
 /// Argmax operator.
-/// 
+///
 /// Computes the argmax of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -217,14 +243,14 @@ pub trait Min<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
 /// assert_eq!(a.argmax(5.0), b);
 /// ```
-pub trait Argmax<Rhs=Self> {
+pub trait Argmax<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the max operation.
@@ -232,14 +258,14 @@ pub trait Argmax<Rhs=Self> {
 }
 
 /// Argmin operator.
-/// 
+///
 /// Computes the argmin of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -249,14 +275,14 @@ pub trait Argmax<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 1.0, 0.0, 1.0]).unwrap();
 /// assert_eq!(a.argmin(5.0), b);
 /// ```
-pub trait Argmin<Rhs=Self> {
+pub trait Argmin<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the max operation.
@@ -264,21 +290,21 @@ pub trait Argmin<Rhs=Self> {
 }
 
 /// Power operator.
-/// 
+///
 /// Raises `self` to `rhs` power.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
 /// let c: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 4, 9, 16]).unwrap();
 /// assert_eq!(a.pow(2), c);
 /// ```
-pub trait Pow<Rhs=Self> {
+pub trait Pow<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the max operation.
@@ -286,12 +312,12 @@ pub trait Pow<Rhs=Self> {
 }
 
 /// Exponential function.
-/// 
+///
 /// Returns `e^(self)`.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -307,12 +333,12 @@ pub trait Exp {
 }
 
 /// Power of 2 function.
-/// 
+///
 /// Returns `2^(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![8.0, 10.0, 10.0, 8.0]).unwrap();
@@ -327,7 +353,7 @@ pub trait Exp2 {
 }
 
 /// Exponential function minus 1.
-/// 
+///
 /// Returns `exp(x) - 1`.
 ///  
 /// This is more accurate than if the operations were
@@ -335,7 +361,7 @@ pub trait Exp2 {
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::LN_2;
 ///
@@ -352,12 +378,12 @@ pub trait ExpM1 {
 }
 
 /// Natural logarithm function.
-/// 
+///
 /// Returns `ln(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -373,14 +399,14 @@ pub trait Ln {
 }
 
 /// Natural logarithm of 1 plus x function.
-/// 
+///
 /// Returns `ln(1 + self)`.
 ///  
 /// This is more accurate than if the operations were performed separately.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -397,12 +423,12 @@ pub trait Ln1p {
 }
 
 /// Base 2 logarithm function.
-/// 
+///
 /// Returns `log2(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -418,12 +444,12 @@ pub trait Log2 {
 }
 
 /// Base 10 logarithm function.
-/// 
+///
 /// Returns `log10(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -439,12 +465,12 @@ pub trait Log10 {
 }
 
 /// Sine function.
-/// 
+///
 /// Returns `sin(self `(in radians)`)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_2, FRAC_1_SQRT_2};
 ///
@@ -460,12 +486,12 @@ pub trait Sin {
 }
 
 /// Cosine function.
-/// 
+///
 /// Returns `cos(self `(in radians)`)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3, FRAC_PI_2, FRAC_1_SQRT_2};
 ///
@@ -481,12 +507,12 @@ pub trait Cos {
 }
 
 /// Tangent function.
-/// 
+///
 /// Returns `tan(self `(in radians)`)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3};
 ///
@@ -502,12 +528,12 @@ pub trait Tan {
 }
 
 /// Hyperbolic sine function.
-/// 
+///
 /// Returns `sinh(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -524,12 +550,12 @@ pub trait Sinh {
 }
 
 /// Hyperbolic cosine function.
-/// 
+///
 /// Returns `cosh(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -546,12 +572,12 @@ pub trait Cosh {
 }
 
 /// Hyperbolic tangent function.
-/// 
+///
 /// Returns `tanh(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -568,7 +594,7 @@ pub trait Tanh {
 }
 
 /// Arcsine function.
-/// 
+///
 /// Returns `asin(self)` (in radians) in [-pi/2, pi/2],
 /// if `self` is in [-1, 1].
 ///
@@ -576,7 +602,7 @@ pub trait Tanh {
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_2, FRAC_1_SQRT_2};
 ///
@@ -592,15 +618,15 @@ pub trait Asin {
 }
 
 /// Arccosine function.
-/// 
+///
 /// Returns `acos(self)` (in radians) in [0, pi],
 /// if `self` in [-1, 1].
-/// 
+///
 /// Note: `asin(self)` is NaN if `self` is outside [-1, 1].
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3, FRAC_PI_2, FRAC_1_SQRT_2};
 ///
@@ -616,12 +642,12 @@ pub trait Acos {
 }
 
 /// Arctangent function.
-/// 
+///
 /// Returns `atan(self)` (in radians) in [-pi/2, pi/2].
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3};
 ///
@@ -637,12 +663,12 @@ pub trait Atan {
 }
 
 /// Inverse hyperbolic sine function.
-/// 
+///
 /// Returns `asinh(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -659,12 +685,12 @@ pub trait Asinh {
 }
 
 /// Inverse hyperbolic cosine function.
-/// 
+///
 /// Returns `acosh(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -681,12 +707,12 @@ pub trait Acosh {
 }
 
 /// Inverse hyperbolic tangent function.
-/// 
+///
 /// Returns `atanh(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -703,14 +729,14 @@ pub trait Atanh {
 }
 
 /// Square root function.
-/// 
+///
 /// Returns `sqrt(self)`.
-/// 
+///
 /// Note: `sqrt(self)` is NaN if `self` is negative.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 4.0, 9.0, 16.0]).unwrap();
@@ -725,12 +751,12 @@ pub trait Sqrt {
 }
 
 /// Cubic root function.
-/// 
+///
 /// Returns `cbrt(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 8.0, 64.0, 512.0]).unwrap();
@@ -745,12 +771,12 @@ pub trait Cbrt {
 }
 
 /// Absolute value function.
-/// 
+///
 /// Returns `abs(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -6.0, 3.0]).unwrap();
@@ -765,7 +791,7 @@ pub trait Abs {
 }
 
 /// Sign function.
-/// 
+///
 /// Returns:
 /// * `1` if `self` is positive,
 /// * `-1` id `self` is negative.
@@ -775,7 +801,7 @@ pub trait Abs {
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![3.0, -2.0, -6.0, 0.0]).unwrap();
@@ -790,14 +816,14 @@ pub trait Signum {
 }
 
 /// Ceiling function.
-/// 
+///
 /// Returns `ceil(self)`.
-/// 
-/// Note: `ceil(x)` is the smallest integer greater than or equal to `x`. 
+///
+/// Note: `ceil(x)` is the smallest integer greater than or equal to `x`.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.81, 3.0]).unwrap();
@@ -812,14 +838,14 @@ pub trait Ceil {
 }
 
 /// Floor function.
-/// 
+///
 /// Returns `floor(self)`.
-/// 
-/// Note: `floor(x)` is the greatest integer smaller than or equal to `x`. 
+///
+/// Note: `floor(x)` is the greatest integer smaller than or equal to `x`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.81, 3.0]).unwrap();
@@ -834,15 +860,15 @@ pub trait Floor {
 }
 
 /// Rounding function.
-/// 
+///
 /// Returns `round(self)`.
-/// 
+///
 /// Note: `round(x)` is the nearest integer to `x`. Half-way cases
 /// are rounded away from zero.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.5, 3.0]).unwrap();
@@ -857,12 +883,12 @@ pub trait Round {
 }
 
 /// Inverse function.
-/// 
+///
 /// Returns `1 / self`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, 0.5, 4.0]).unwrap();
@@ -877,12 +903,12 @@ pub trait Recip {
 }
 
 /// Conversion to degrees function.
-/// 
+///
 /// Returns `self` (in degrees).
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_3, FRAC_PI_2};
 ///
@@ -898,12 +924,12 @@ pub trait ToDegrees {
 }
 
 /// Conversion to radians function.
-/// 
+///
 /// Returns `self` (in radians).
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_3, FRAC_PI_2};
 ///
@@ -919,12 +945,12 @@ pub trait ToRadians {
 }
 
 /// Real portion of a complex number.
-/// 
+///
 /// Returns `Re(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use num_complex::{Complex, Complex64};
 ///
@@ -946,12 +972,12 @@ pub trait Re {
 }
 
 /// Imaginary portion of a complex number.
-/// 
+///
 /// Returns `Im(self)`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use num_complex::{Complex, Complex64};
 ///
@@ -972,13 +998,40 @@ pub trait Im {
     fn im(self) -> Self::Output;
 }
 
+/// L2-norm, modulus of a complex number.
+///
+/// Returns `||self||`.
+///  
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+///
+/// let a: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(1.0, 0.0), Complex::new(0.0, 1.0),
+///     Complex::new(-1.0, 0.0), Complex::new(0.0, -1.0)
+/// ]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     1.0, 1.0,
+///     1.0, 1.0
+/// ]).unwrap();
+/// assert_eq!(a.norm(), b);
+/// ```
+pub trait Norm {
+    /// Output type.
+    type Output;
+    /// Returns the L2-norm.
+    fn norm(self) -> Self::Output;
+}
+
 /// Argument of a complex number.
-/// 
+///
 /// Returns `arg(self)` (in radians).
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use num_complex::{Complex, Complex64};
 /// use std::f64::consts::{FRAC_PI_2, PI};
@@ -1001,12 +1054,12 @@ pub trait Arg {
 }
 
 /// Conjugate of a complex number.
-/// 
+///
 /// Returns `a - ib` where `self = a + ib`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use num_complex::{Complex, Complex64};
 ///
@@ -1028,7 +1081,7 @@ pub trait Conj {
 }
 
 /// Linear transformation operator.
-/// 
+///
 /// Returns `(self * rhs0) + rhs1`.
 ///
 /// Computations only involve one rounding error, yielding
@@ -1037,12 +1090,12 @@ pub trait Conj {
 /// Using mul_add can be more performant than an unfused
 /// multiply-add if the target architecture has a dedicated
 /// fma CPU instruction.
-/// 
+///
 /// Note that `Rhs0` and `Rhs1` are `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
@@ -1053,14 +1106,14 @@ pub trait Conj {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![3.0, 1.0, 1.0, 3.0]).unwrap();
 /// assert_eq!(a.mul_add(2.0, 1.0), b);
 /// ```
-pub trait MulAdd<Rhs0=Self, Rhs1=Self> {
+pub trait MulAdd<Rhs0 = Self, Rhs1 = Self> {
     /// Output type.
     type Output;
     /// Returns `(self * rhs0) + rhs1`.
@@ -1078,7 +1131,6 @@ macro_rules! binary_op_impl {
             ($var:ty) => { $var };
             () => { $t };
         }
-        
         impl $trait$(<$param_type>)? for $t {
             type Output = $t;
             #[inline]
@@ -1100,7 +1152,6 @@ macro_rules! ternary_op_impl {
             ($var:ty) => { $var };
             () => { $t };
         }
-        
         impl $trait$(<$param_type0, $param_type1>)? for $t {
             type Output = $t;
             #[inline]
@@ -1266,7 +1317,6 @@ macro_rules! complex_to_float_impl {
                 self.re
             }
         }
-        
         impl Im for $t0 {
             type Output = $t1;
             #[inline]
@@ -1274,20 +1324,18 @@ macro_rules! complex_to_float_impl {
                 self.im
             }
         }
-        
-        impl Abs for $t0 {
+        impl Norm for $t0 {
             type Output = $t1;
             #[inline]
-            fn abs(self) -> Self::Output {
-                self.norm()
+            fn norm(self) -> Self::Output {
+                Self::norm(&self)
             }
         }
-        
         impl Arg for $t0 {
             type Output = $t1;
             #[inline]
             fn arg(self) -> Self::Output {
-                self.arg()
+                Self::arg(&self)
             }
         }
     )*};
@@ -1305,12 +1353,12 @@ complex_to_float_impl! { Complex64>f64 Complex32>f32 }
 /// Using mul_add can be more performant than an unfused
 /// multiply-add if the target architecture has a dedicated
 /// fma CPU instruction.
-/// 
+///
 /// Note that `Rhs0` and `Rhs1` are `Self` by default, but this is not mandatory.
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
@@ -1322,7 +1370,7 @@ complex_to_float_impl! { Complex64>f64 Complex32>f32 }
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
@@ -1330,25 +1378,25 @@ complex_to_float_impl! { Complex64>f64 Complex32>f32 }
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![3.0, 1.0, 1.0, 3.0]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait MulAddAssign<Rhs0=Self, Rhs1=Self> {
+pub trait MulAddAssign<Rhs0 = Self, Rhs1 = Self> {
     /// Fused in-place multiply-add.
     fn mul_add_assign(&mut self, rhs0: Rhs0, rhs1: Rhs1);
 }
 
 /// In-place four quadrant arctangent operator.
-/// 
+///
 /// Computes the four quadrant arctengent of `self` (`y`)
 /// and `rhs` (`x`) in radians as follows:
 /// * `x = 0`, `y = 0`: `0`
 /// * `x >= 0`: `arctan(y/x)` -> `[-pi/2, pi/2]`
 /// * `y >= 0`: `arctan(y/x) + pi` -> `(pi/2, pi]`
 /// * `y < 0`: `arctan(y/x) - pi` -> `(-pi, -pi/2)`
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, FRAC_PI_4};
@@ -1363,7 +1411,7 @@ pub trait MulAddAssign<Rhs0=Self, Rhs1=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::FRAC_PI_2;
@@ -1375,20 +1423,20 @@ pub trait MulAddAssign<Rhs0=Self, Rhs1=Self> {
 /// a.abs_assign();
 /// assert!(a < f64::EPSILON);
 /// ```
-pub trait Atan2Assign<Rhs=Self> {
+pub trait Atan2Assign<Rhs = Self> {
     /// Performs the in-place four quadrant arctangent operation.
     fn atan2_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place copysign operator.
-/// 
+///
 /// Result is composed of the magnitude of `self` and the sign of `rhs`.
 ///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, 3.0, 4.0]).unwrap();
@@ -1399,7 +1447,7 @@ pub trait Atan2Assign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -1.0, 5.0]).unwrap();
@@ -1407,20 +1455,20 @@ pub trait Atan2Assign<Rhs=Self> {
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, -2.0, -1.0, -5.0]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait CopysignAssign<Rhs=Self> {
+pub trait CopysignAssign<Rhs = Self> {
     /// Performs the in-place copysign operation.
     fn copysign_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place quotient of Euclidean division operator.
-/// 
+///
 /// Computes the quotient of Euclidean division of `self` by `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![7, 7, -7, -7]).unwrap();
@@ -1431,7 +1479,7 @@ pub trait CopysignAssign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![7, -7]).unwrap();
@@ -1439,20 +1487,20 @@ pub trait CopysignAssign<Rhs=Self> {
 /// let b: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![1, -2]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait DivEuclidAssign<Rhs=Self> {
+pub trait DivEuclidAssign<Rhs = Self> {
     /// Performs the in-place quotient of Euclidean division operation.
     fn div_euclid_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place remainder of Euclidean division operator.
-/// 
+///
 /// Computes the least nonnegative remainder of `self (mod rhs)`.
 ///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![7, -7, 7, -7]).unwrap();
@@ -1463,7 +1511,7 @@ pub trait DivEuclidAssign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![7, -7]).unwrap();
@@ -1471,20 +1519,20 @@ pub trait DivEuclidAssign<Rhs=Self> {
 /// let b: StaticTensor<i32, Shape1D<U2>> = Tensor::try_from(vec![3, 1]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait RemEuclidAssign<Rhs=Self> {
+pub trait RemEuclidAssign<Rhs = Self> {
     /// Performs the in-place remainder of Euclidean division operation.
     fn rem_euclid_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place max operator.
-/// 
+///
 /// Computes the max of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -1495,7 +1543,7 @@ pub trait RemEuclidAssign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
@@ -1503,20 +1551,20 @@ pub trait RemEuclidAssign<Rhs=Self> {
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, 10.0, 5.0, 6.0]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait MaxAssign<Rhs=Self> {
+pub trait MaxAssign<Rhs = Self> {
     /// Performs the in-place max operation.
     fn max_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place min operator.
-/// 
+///
 /// Computes the min of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -1527,7 +1575,7 @@ pub trait MaxAssign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
@@ -1535,20 +1583,20 @@ pub trait MaxAssign<Rhs=Self> {
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 5.0, 3.0, 5.0]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait MinAssign<Rhs=Self> {
+pub trait MinAssign<Rhs = Self> {
     /// Performs the in-place max operation.
     fn min_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place argmax operator.
-/// 
+///
 /// Computes the argmax of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -1559,7 +1607,7 @@ pub trait MinAssign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
@@ -1567,20 +1615,20 @@ pub trait MinAssign<Rhs=Self> {
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait ArgmaxAssign<Rhs=Self> {
+pub trait ArgmaxAssign<Rhs = Self> {
     /// Performs the in-place argmax operation.
     fn argmax_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place argmin operator.
-/// 
+///
 /// Computes the argmin of `self` and `rhs`.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
@@ -1591,7 +1639,7 @@ pub trait ArgmaxAssign<Rhs=Self> {
 /// ```
 ///
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
@@ -1599,20 +1647,20 @@ pub trait ArgmaxAssign<Rhs=Self> {
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 1.0, 0.0, 1.0]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait ArgminAssign<Rhs=Self> {
+pub trait ArgminAssign<Rhs = Self> {
     /// Performs the in-place max operation.
     fn argmin_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place power operator.
-/// 
+///
 /// Raise `self` to `rhs` power.
-/// 
+///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
@@ -1620,18 +1668,18 @@ pub trait ArgminAssign<Rhs=Self> {
 /// let c: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 4, 9, 16]).unwrap();
 /// assert_eq!(a, c);
 /// ```
-pub trait PowAssign<Rhs=Self> {
+pub trait PowAssign<Rhs = Self> {
     /// Performs the in-place max operation.
     fn pow_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place exponential function.
-/// 
+///
 /// `self -> e^(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -1646,12 +1694,12 @@ pub trait ExpAssign {
 }
 
 /// In-place power of 2 function.
-/// 
+///
 /// `self -> 2^(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![8.0, 10.0, 10.0, 8.0]).unwrap();
@@ -1665,7 +1713,7 @@ pub trait Exp2Assign {
 }
 
 /// In-place exponential function minus 1.
-/// 
+///
 /// `self -> exp(x) - 1`
 ///
 /// This is more accurate than if the operations were
@@ -1673,7 +1721,7 @@ pub trait Exp2Assign {
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::LN_2;
 ///
@@ -1688,12 +1736,12 @@ pub trait ExpM1Assign {
 }
 
 /// In-place natural logarithm function.
-/// 
+///
 /// `self -> ln(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -1708,14 +1756,14 @@ pub trait LnAssign {
 }
 
 /// In-place natural logarithm of 1 plus x function.
-/// 
+///
 /// `self -> ln(1 + self)`
 ///
 /// This is more accurate than if the operations were performed separately.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -1730,12 +1778,12 @@ pub trait Ln1pAssign {
 }
 
 /// In-place base 2 logarithm function.
-/// 
+///
 /// `self -> log2(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -1750,12 +1798,12 @@ pub trait Log2Assign {
 }
 
 /// In-place base 10 logarithm function.
-/// 
+///
 /// `self -> log10(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::f64::consts::E;
 ///
@@ -1770,12 +1818,12 @@ pub trait Log10Assign {
 }
 
 /// In-place sine function.
-/// 
+///
 /// `self` (in radians) `-> sin(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_2, FRAC_1_SQRT_2};
@@ -1793,12 +1841,12 @@ pub trait SinAssign {
 }
 
 /// In-place cosine function.
-/// 
+///
 /// `self` (in radians) `-> cos(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3, FRAC_PI_2, FRAC_1_SQRT_2};
@@ -1816,12 +1864,12 @@ pub trait CosAssign {
 }
 
 /// In-place tangent function.
-/// 
+///
 /// `self` (in radians) `-> tan(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3};
@@ -1839,12 +1887,12 @@ pub trait TanAssign {
 }
 
 /// In-place hyperbolic sine function.
-/// 
+///
 /// `self -> sinh(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::E;
@@ -1863,12 +1911,12 @@ pub trait SinhAssign {
 }
 
 /// In-place hyperbolic cosine function.
-/// 
+///
 /// `self -> cosh(self)`
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::E;
@@ -1887,12 +1935,12 @@ pub trait CoshAssign {
 }
 
 /// In-place hyperbolic tangent function.
-/// 
+///
 /// `self -> tanh(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::E;
@@ -1911,14 +1959,14 @@ pub trait TanhAssign {
 }
 
 /// In-place arcsine function.
-/// 
+///
 /// `self` in [-1, 1] `-> asin(self)` (in radians) in [-pi/2, pi/2]
 ///
 /// Note: `asin(self)` is NaN if `self` is outside [-1, 1].
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_2, FRAC_1_SQRT_2};
@@ -1936,14 +1984,14 @@ pub trait AsinAssign {
 }
 
 /// In-place arccosine function.
-/// 
+///
 /// `self` in [-1, 1] `-> acos(self)` (in radians) in [0, pi]
-/// 
+///
 /// Note: `asin(self)` is NaN if `self` is outside [-1, 1].
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3, FRAC_PI_2, FRAC_1_SQRT_2};
@@ -1961,12 +2009,12 @@ pub trait AcosAssign {
 }
 
 /// In-place arctangent function.
-/// 
+///
 /// `self -> atan(self)` (in radians) in [-pi/2, pi/2]
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_4, FRAC_PI_3};
@@ -1984,12 +2032,12 @@ pub trait AtanAssign {
 }
 
 /// In-place inverse hyperbolic sine function.
-/// 
+///
 /// `self -> asinh(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::E;
@@ -2008,12 +2056,12 @@ pub trait AsinhAssign {
 }
 
 /// In-place inverse hyperbolic cosine function.
-/// 
+///
 /// `self -> acosh(self)`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::E;
@@ -2032,12 +2080,12 @@ pub trait AcoshAssign {
 }
 
 /// In-place inverse hyperbolic tangent function.
-/// 
+///
 /// `self -> atanh(self)`
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::E;
@@ -2056,14 +2104,14 @@ pub trait AtanhAssign {
 }
 
 /// In-place square root function.
-/// 
+///
 /// `self -> sqrt(self)`
-/// 
+///
 /// Note: `sqrt(self)` is NaN if `self` is negative.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 4.0, 9.0, 16.0]).unwrap();
@@ -2077,12 +2125,12 @@ pub trait SqrtAssign {
 }
 
 /// In-place cubic root function.
-/// 
+///
 /// `self -> cbrt(self)`
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 8.0, 64.0, 512.0]).unwrap();
@@ -2096,12 +2144,12 @@ pub trait CbrtAssign {
 }
 
 /// In-place absolute value function.
-/// 
+///
 /// `self -> abs(self)`
-/// 
+///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -6.0, 3.0]).unwrap();
@@ -2115,17 +2163,17 @@ pub trait AbsAssign {
 }
 
 /// In-place sign function.
-/// 
+///
 /// `self ->`
 /// * `1` if `self` is positive
 /// * `-1` id `self` is negative
-/// 
+///
 /// Note that for signed integers, `0` -> `0`. However,
-/// for floats, `+0.0` -> `1.0` and `-0.0` -> `-1.0`. 
+/// for floats, `+0.0` -> `1.0` and `-0.0` -> `-1.0`.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![3.0, -2.0, -6.0, 0.0]).unwrap();
@@ -2139,14 +2187,14 @@ pub trait SignumAssign {
 }
 
 /// In-place ceiling function.
-/// 
+///
 /// `self -> ceil(self)`
-/// 
-/// Note: `ceil(x)` is the smallest integer greater than or equal to `x`. 
+///
+/// Note: `ceil(x)` is the smallest integer greater than or equal to `x`.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.81, 3.0]).unwrap();
@@ -2160,14 +2208,14 @@ pub trait CeilAssign {
 }
 
 /// In-place floor function.
-/// 
+///
 /// `self -> floor(self)`
-/// 
-/// Note: `floor(x)` is the greatest integer smaller than or equal to `x`. 
+///
+/// Note: `floor(x)` is the greatest integer smaller than or equal to `x`.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.81, 3.0]).unwrap();
@@ -2181,15 +2229,15 @@ pub trait FloorAssign {
 }
 
 /// In-place rounding function.
-/// 
+///
 /// `self -> round(self)`
-/// 
+///
 /// Note: `round(x)` is the nearest integer to `x`. Half-way cases
 /// are rounded away from zero.
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.5, 3.0]).unwrap();
@@ -2203,12 +2251,12 @@ pub trait RoundAssign {
 }
 
 /// In-place inverse function.
-/// 
+///
 /// `self -> 1 / self`
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 ///
@@ -2225,12 +2273,12 @@ pub trait RecipAssign {
 }
 
 /// In-place conversion to degrees function.
-/// 
+///
 /// `self` (in radians) `-> self` (in degrees)
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_3, FRAC_PI_2};
@@ -2248,12 +2296,12 @@ pub trait ToDegreesAssign {
 }
 
 /// In-place conversion to radians function.
-/// 
+///
 /// `self` (in degrees) `-> self` (in radians)
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use std::ops::SubAssign;
 /// use std::f64::consts::{FRAC_PI_6, FRAC_PI_4, FRAC_PI_3, FRAC_PI_2};
@@ -2271,12 +2319,12 @@ pub trait ToRadiansAssign {
 }
 
 /// Conjugate of a complex number.
-/// 
+///
 /// `self = a + ib` -> `a - ib`.
 ///  
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::U2;
 /// use num_complex::{Complex, Complex64};
 ///
@@ -2328,7 +2376,6 @@ macro_rules! in_place_ternary_op_impl {
             ($var:ty) => { $var };
             () => { $t };
         }
-        
         impl $trait$(<$param_type0, $param_type1>)? for $t {
             #[inline]
             fn $trait_fn(&mut self, rhs0: isset_or_default!($($param_type0)?), rhs1: isset_or_default!($($param_type1)?)) {

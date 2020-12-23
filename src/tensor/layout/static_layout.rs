@@ -1,13 +1,13 @@
 use super::Layout;
 use crate::tensor::index::Index;
 use crate::tensor::shape::StaticShape;
-use std::marker::PhantomData;
 use std::convert::TryFrom;
-use typenum::Unsigned;
 use std::fmt;
+use std::marker::PhantomData;
+use typenum::Unsigned;
 
 /// Layout type suitable for static and contiguous tensors.
-/// 
+///
 /// It has zero overhead since for those tensors the layout
 /// is known at compile time.
 #[derive(Clone)]

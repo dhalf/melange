@@ -1,54 +1,56 @@
+use super::index::Index;
 use super::layout::{DynamicLayout, Layout, StaticLayout};
-use super::shape::{Shape, Same, StaticShape};
-use super::strided_iterator::{StridedIter, StridedIterMut, StridedIterator, StridedIteratorMut, ChunksMut};
+use super::shape::{Same, Shape, StaticShape};
+use super::strided_iterator::{
+    ChunksMut, StridedIter, StridedIterMut, StridedIterator, StridedIteratorMut,
+};
+use crate::gat::RefMutGat;
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use typenum::bit::{B0, B1};
-use crate::gat::RefMutGat;
-use std::cmp::Ordering;
-use super::index::Index;
 
 /// Type-level constant aliasing bit B0.
-/// 
+///
 /// Its conterpart is [`Dynamic`](Dynamic)
 pub type Static = B0;
 
 /// Type-level constant aliasing bit B1.
-/// 
+///
 /// Its conterpart is [`Static`](Static)
 pub type Dynamic = B1;
 
 /// Type-level constant aliasing bit B0.
-/// 
+///
 /// Its conterpart is [`Strided`](Strided)
 pub type Contiguous = B0;
 
 /// Type-level constant aliasing bit B1.
-/// 
+///
 /// Its conterpart is [`Contiguous`](Contiguous)
 pub type Strided = B1;
 
 /// Type-level constant aliasing bit B0.
-/// 
+///
 /// Its conterpart is [`Transposed`](Transposed)
 pub type Normal = B0;
 
 /// Type-level constant aliasing bit B1.
-/// 
+///
 /// Its conterpart is [`Normal`](Normal)
 pub type Transposed = B1;
 
+pub mod alloc;
 pub mod convert;
 pub mod view;
-pub mod alloc;
 
 use alloc::*;
 
 /// Very abstract multidimensional array-like data container.
-/// 
+///
 /// This is the core struct of this librabry, all vectorized
 /// operations are defined on subsets of all types it encompasses.
-/// 
+///
 /// It takes seven generic arguments:
 /// - X, a type-level bit set to B0/B1 if the tensor is static/dynamic
 /// respectively, see [`typenum`];
@@ -65,7 +67,7 @@ use alloc::*;
 /// - L, a type implementing [`Layout`] that holds the information
 /// necessary to map the abstract layout of the tensor to how
 /// data is really laid out in memory.
-/// 
+///
 /// [`Layout`]: crate::tensor::layout::Layout
 /// [`typenum`]: https://docs.rs/typenum/1.12.0/typenum/index.html
 #[derive(Debug)]
@@ -96,7 +98,7 @@ where
 
 impl<X, Y, Z, T, S, A, D, L> AsRawSliceMut<T> for Tensor<X, Y, Z, T, S, A, D, L>
 where
-    D: DerefMut<Target= [T]>,
+    D: DerefMut<Target = [T]>,
 {
     /// Returns an mutable slice to the tensor's raw data.
     #[inline]
@@ -117,7 +119,8 @@ impl<T, S> Tensor<Static, Contiguous, Normal, T, S, DefaultAllocator, Vec<T>, St
     }
 }
 
-impl<T, S> Tensor<Dynamic, Contiguous, Normal, T, S, DefaultAllocator, Vec<T>, DynamicLayout<S::Len>>
+impl<T, S>
+    Tensor<Dynamic, Contiguous, Normal, T, S, DefaultAllocator, Vec<T>, DynamicLayout<S::Len>>
 where
     T: Copy,
     S: Shape,
@@ -233,10 +236,13 @@ macro_rules! scalar_cmp_fn_impl {
     };
 }
 
-impl<X, Y, Z, T, S, A, D, L, Xrhs, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs> PartialEq<Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>> for Tensor<X, Y, Z, T, S, A, D, L>
+impl<X, Y, Z, T, S, A, D, L, Xrhs, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs>
+    PartialEq<Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>>
+    for Tensor<X, Y, Z, T, S, A, D, L>
 where
     for<'a> &'a Self: StridedIterator<Item = &'a [T]>,
-    for<'a> &'a Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>: StridedIterator<Item = &'a [T]>,
+    for<'a> &'a Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>:
+        StridedIterator<Item = &'a [T]>,
     T: PartialEq,
     S: Shape + Same<Srhs>,
     L: Layout<S::Len>,
@@ -255,17 +261,23 @@ where
     scalar_cmp_fn_impl! { eq != }
 }
 
-impl<X, Y, Z, T, S, A, D, L, Xrhs, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs> PartialOrd<Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>> for Tensor<X, Y, Z, T, S, A, D, L>
+impl<X, Y, Z, T, S, A, D, L, Xrhs, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs>
+    PartialOrd<Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>>
+    for Tensor<X, Y, Z, T, S, A, D, L>
 where
     for<'a> &'a Self: StridedIterator<Item = &'a [T]>,
-    for<'a> &'a Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>: StridedIterator<Item = &'a [T]>,
+    for<'a> &'a Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>:
+        StridedIterator<Item = &'a [T]>,
     T: PartialOrd,
     S: Shape + Same<Srhs>,
     L: Layout<S::Len>,
     Lrhs: Layout<S::Len>,
 {
     #[inline]
-    fn partial_cmp(&self, rhs: &Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>) -> Option<Ordering> {
+    fn partial_cmp(
+        &self,
+        rhs: &Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>,
+    ) -> Option<Ordering> {
         match (self <= rhs, self >= rhs) {
             (false, false) => None,
             (false, true) => Some(Ordering::Greater),

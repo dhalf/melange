@@ -1,23 +1,23 @@
+use crate::gat::{Gat, RefMutGat, StreamingIterator};
 use crate::tensor::index::Index;
 use crate::tensor::layout::Layout;
 use std::convert::TryFrom;
 use std::marker::PhantomData;
 use typenum::Unsigned;
-use crate::gat::{Gat, RefMutGat, StreamingIterator};
 
 /// Streaming iterator that yields (overlapping) mutable chunks
 /// of data from a strided tensor.
-/// 
+///
 /// Chunks correspond to the abstract layout of the tensor
 /// as defined in its [`Layout`](crate::tensor::layout::Layout)
 /// and not to the underlying real layout of its data.
 /// For instance, it will repeatedly yield the same actual
 /// slices in the case of a broadcasted tensor.
-/// 
+///
 /// `StridedIterMut` is the output of
 /// [`StridedIteratorMut::strided_iter_mut`](super::StridedIteratorMut::strided_iter_mut)
 /// on a strided [`Tensor`](crate::tensor::Tensor)
-/// 
+///
 /// # Safety
 /// `StridedIterMut` internally uses raw poiters to speed up
 /// iteration. Proper bound checking is done to avoid potential

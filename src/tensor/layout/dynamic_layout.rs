@@ -3,7 +3,7 @@ use crate::tensor::index::Index;
 use std::fmt;
 
 /// Layout type suitable for dynamic or strided tensors.
-/// 
+///
 /// It stores the runtime shape, strides, num_elements and
 /// optimal_chunk_size of the tensor.
 #[derive(Clone)]

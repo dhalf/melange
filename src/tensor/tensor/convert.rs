@@ -1,13 +1,14 @@
 use super::*;
-use crate::tensor::layout::{StaticLayout, DynamicLayout};
-use crate::tensor::shape::{StaticShape, intrinsic_strides_in_place, Reduction};
+use crate::tensor::index::Index;
+use crate::tensor::layout::{DynamicLayout, StaticLayout};
+use crate::tensor::shape::{intrinsic_strides_in_place, Reduction, StaticShape};
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind};
 use std::marker::PhantomData;
 use typenum::{Unsigned, U0};
-use crate::tensor::index::Index;
 
-impl<Y, Z, T, S> TryFrom<Vec<T>> for Tensor<Static, Y, Z, T, S, DefaultAllocator, Vec<T>, StaticLayout<S>>
+impl<Y, Z, T, S> TryFrom<Vec<T>>
+    for Tensor<Static, Y, Z, T, S, DefaultAllocator, Vec<T>, StaticLayout<S>>
 where
     S: StaticShape,
 {
@@ -32,7 +33,8 @@ where
     }
 }
 
-impl<Y, Z, T, S> TryFrom<Vec<T>> for Tensor<Dynamic, Y, Z, T, S, DefaultAllocator, Vec<T>, DynamicLayout<S::Len>>
+impl<Y, Z, T, S> TryFrom<Vec<T>>
+    for Tensor<Dynamic, Y, Z, T, S, DefaultAllocator, Vec<T>, DynamicLayout<S::Len>>
 where
     S: Reduction<U0> + Shape,
     <S as Reduction<U0>>::Output: StaticShape,
@@ -47,7 +49,6 @@ where
             } else {
                 shape.push(len / <<S as Reduction<U0>>::Output as StaticShape>::NumElements::USIZE);
             }
-            
             Ok(Tensor {
                 data: value,
                 layout: DynamicLayout {

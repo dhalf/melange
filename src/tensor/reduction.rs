@@ -14,116 +14,22 @@
 //! Similarly to `core_ops`, `reductions` also rely on "chunks loops"
 //! to optimize computation time.
 
-use super::{Tensor, Static, Dynamic, Strided};
-use super::layout::{Layout, DynamicLayout};
-use super::shape::{StaticShape, Shape, BroadcastShape, PartialCopy, Same, TRUE};
-use super::view::{BroadcastMut, BroadcastDynamicMut};
-use std::ops::{AddAssign, MulAssign};
-use crate::ops::{MaxAssign, MinAssign};
+use super::alloc::{DynamicAlloc, StaticAlloc};
 use super::index::Index;
-use std::convert::TryFrom;
-use super::alloc::{StaticAlloc, DynamicAlloc};
+use super::layout::{DynamicLayout, Layout};
+use super::shape::{BroadcastShape, PartialCopy, Same, Shape, StaticShape, TRUE};
 use super::strided_iterator::StridedIterator;
-use num_complex::{Complex, Complex32, Complex64};
+use super::view::{BroadcastDynamicMut, BroadcastMut};
+use super::{Dynamic, Static, Strided, Tensor};
+use crate::ops::{MaxAssign, MinAssign};
+use crate::scalar_traits::*;
+use std::convert::TryFrom;
+use std::ops::{AddAssign, MulAssign};
 
-type BroadcastMutView<'a, Z, T, Sout: Shape, A> = Tensor<Static, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
-type BroadcastDynamicMutView<'a, Z, T, Sout: Shape, A> = Tensor<Dynamic, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
-
-/// Initial values used when performing a
-/// summation along given axes
-/// for tensors of scalar type `Self`.
-/// 
-/// Implemented for all primitive numeric types
-/// and [`num_complex`] `Complex64` and `Complex32`.
-pub trait SumInit {
-    const SUM: Self;
-}
-
-/// Initial values used when performing a
-/// product along given axes
-/// for tensors of scalar type `Self`.
-/// 
-/// Implemented for all primitive numeric types
-/// and [`num_complex`] `Complex64` and `Complex32`.
-pub trait ProdInit {
-    const PROD: Self;
-}
-
-/// Initial values used when searching for
-/// the maximum along given axes
-/// for tensors of scalar type `Self`.
-/// 
-/// Implemented for all primitive numeric types.
-pub trait MaxInit {
-    const MAX: Self;
-}
-
-/// Initial values used when searching for
-/// the minimum along given axes
-/// for tensors of scalar type `Self`.
-/// 
-/// Implemented for all primitive numeric types.
-pub trait MinInit {
-    const MIN: Self;
-}
-
-macro_rules! init_values_impl_float {
-    ($($t:ty)*) => ($(
-        impl SumInit for $t {
-            const SUM: Self = 0.0;
-        }
-
-        impl ProdInit for $t {
-            const PROD: Self = 1.0;
-        }
-
-        impl MaxInit for $t {
-            const MAX: Self = <$t>::NEG_INFINITY;
-        }
-
-        impl MinInit for $t {
-            const MIN: Self = <$t>::INFINITY;
-        }
-    )*)
-}
-
-init_values_impl_float! { f64 f32 }
-
-macro_rules! init_values_impl_integer {
-    ($($t:ty)*) => ($(
-        impl SumInit for $t {
-            const SUM: Self = 0;
-        }
-
-        impl ProdInit for $t {
-            const PROD: Self = 1;
-        }
-
-        impl MaxInit for $t {
-            const MAX: Self = <$t>::MIN;
-        }
-
-        impl MinInit for $t {
-            const MIN: Self = <$t>::MAX;
-        }
-    )*)
-}
-
-init_values_impl_integer! { u128 u64 u32 u16 u8 i128 i64 i32 i16 i8 }
-
-macro_rules! init_values_impl_complex {
-    ($($t:ty)*) => ($(
-        impl SumInit for $t {
-            const SUM: Self = Complex::new(0.0, 0.0);
-        }
-
-        impl ProdInit for $t {
-            const PROD: Self = Complex::new(1.0, 0.0);
-        }
-    )*)
-}
-
-init_values_impl_complex! { Complex64 Complex32 }
+type BroadcastMutView<'a, Z, T, Sout: Shape, A> =
+    Tensor<Static, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
+type BroadcastDynamicMutView<'a, Z, T, Sout: Shape, A> =
+    Tensor<Dynamic, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
 
 /// Summation allong chosen axes of a static tensor.
 ///
@@ -132,7 +38,7 @@ init_values_impl_complex! { Complex64 Complex32 }
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U1, U2};
 ///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, -2, 1]).unwrap();
@@ -155,7 +61,7 @@ pub trait Sum<Sout> {
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U1, U2};
 ///
 /// let a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, -2, 1]).unwrap();
@@ -178,7 +84,7 @@ pub trait Prod<Sout> {
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U1, U2};
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, -2.0, 1.0]).unwrap();
@@ -201,7 +107,7 @@ pub trait MaxReduce<Sout> {
 ///
 /// # Examples
 /// ```
-/// use melange_scratch::prelude::*;
+/// use melange::prelude::*;
 /// use typenum::{U1, U2};
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, -2.0, 1.0]).unwrap();
@@ -235,7 +141,6 @@ macro_rules! reduction_impls {
             fn $trait_fn(self) -> Self::Output {
                 let mut out = A::fill($init_value);
                 out.broadcast_mut().$reduction_trait_fn(self);
-                
                 out
             }
         }
@@ -266,8 +171,8 @@ macro_rules! reduction_impls {
 }
 
 reduction_impls! {
-    Sum, sum, AddAssign, add_assign, SumInit, T::SUM;
-    Prod, prod, MulAssign, mul_assign, ProdInit, T::PROD;
-    MaxReduce, max_reduce, MaxAssign, max_assign, MaxInit, T::MAX;
-    MinReduce, min_reduce, MinAssign, min_assign, MinInit, T::MIN
+    Sum, sum, AddAssign, add_assign, Zero, T::ZERO;
+    Prod, prod, MulAssign, mul_assign, One, T::ONE;
+    MaxReduce, max_reduce, MaxAssign, max_assign, NegInfinity, T::NEG_INFINITY;
+    MinReduce, min_reduce, MinAssign, min_assign, Infinity, T::INFINITY
 }
