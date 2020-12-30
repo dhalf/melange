@@ -65,6 +65,42 @@ pub trait Atan2<Rhs = Self> {
     fn atan2(self, rhs: Rhs) -> Self::Output;
 }
 
+/// Hypotenuse operator.
+///
+/// Calculates the length of the hypotenuse of a right-angle triangle
+/// given legs of length `self` and `rhs`.
+///
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use std::f64::consts::SQRT_2;
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![SQRT_2, 1.0, 1.0, SQRT_2]).unwrap();
+/// assert!(a.hypot(&b).sub(&c).abs() < f64::EPSILON);
+/// ```
+///
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use std::f64::consts::SQRT_2;
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![SQRT_2, 1.0, 1.0, SQRT_2]).unwrap();
+/// assert!(a.hypot(1.0).sub(&b).abs() < f64::EPSILON);
+/// ```
+pub trait Hypot<Rhs = Self> {
+    /// Output type.
+    type Output;
+    /// Calculates the length of the hypotenuse of a right-angle triangle
+    /// given legs of length `self` and `rhs`.
+    fn hypot(self, rhs: Rhs) -> Self::Output;
+}
+
 /// Copysign operator.
 ///
 /// Result is composed of the magnitude of `self` and the sign of `rhs`.
@@ -225,41 +261,11 @@ pub trait Min<Rhs = Self> {
     fn min(self, rhs: Rhs) -> Self::Output;
 }
 
-/// Argmax operator.
+/// Mask of max operator.
 ///
-/// Computes the argmax of `self` and `rhs`.
-///
-/// Note that `Rhs` is `Self` by default, but this is not mandatory.
-///
-/// # Examples
-/// ```
-/// use melange::prelude::*;
-/// use typenum::U2;
-///
-/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
-/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 0.0, 1.0, 0.0]).unwrap();
-/// assert_eq!(a.argmax(&b), c);
-/// ```
-///
-/// ```
-/// use melange::prelude::*;
-/// use typenum::U2;
-///
-/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
-/// assert_eq!(a.argmax(5.0), b);
-/// ```
-pub trait Argmax<Rhs = Self> {
-    /// Output type.
-    type Output;
-    /// Performs the max operation.
-    fn argmax(self, rhs: Rhs) -> Self::Output;
-}
-
-/// Argmin operator.
-///
-/// Computes the argmin of `self` and `rhs`.
+/// Computes the mask of max on `self`:
+/// * `1` if `self` is the max,
+/// * `0` otherwise.
 ///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
@@ -271,7 +277,7 @@ pub trait Argmax<Rhs = Self> {
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
 /// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 0.0, 1.0]).unwrap();
-/// assert_eq!(a.argmin(&b), c);
+/// assert_eq!(a.max_mask(&b), c);
 /// ```
 ///
 /// ```
@@ -280,13 +286,47 @@ pub trait Argmax<Rhs = Self> {
 ///
 /// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 1.0, 0.0, 1.0]).unwrap();
-/// assert_eq!(a.argmin(5.0), b);
+/// assert_eq!(a.max_mask(5.0), b);
 /// ```
-pub trait Argmin<Rhs = Self> {
+pub trait MaxMask<Rhs = Self> {
     /// Output type.
     type Output;
     /// Performs the max operation.
-    fn argmin(self, rhs: Rhs) -> Self::Output;
+    fn max_mask(self, rhs: Rhs) -> Self::Output;
+}
+
+/// Mask of min operator.
+///
+/// Computes the mask of max on `self`:
+/// * `1` if `self` is the min,
+/// * `0` otherwise.
+///
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a.min_mask(&b), c);
+/// ```
+///
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a.min_mask(5.0), b);
+/// ```
+pub trait MinMask<Rhs = Self> {
+    /// Output type.
+    type Output;
+    /// Performs the max operation.
+    fn min_mask(self, rhs: Rhs) -> Self::Output;
 }
 
 /// Power operator.
@@ -309,6 +349,27 @@ pub trait Pow<Rhs = Self> {
     type Output;
     /// Performs the max operation.
     fn pow(self, rhs: Rhs) -> Self::Output;
+}
+
+/// Arbitrary base logarithm function.
+///
+/// Returns the logarithm of `self` with respect to an arbitrary base.
+///  
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use std::f64::consts::E;
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![3.0, 9.0, 9.0, 3.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, 2.0, 1.0]).unwrap();
+/// assert!(a.log(3.0).sub(&b).abs() < f64::EPSILON);
+/// ```
+pub trait Log<Rhs = Self> {
+    /// Output type.
+    type Output;
+    /// Returns the base `rhs` logarithm of `self`.
+    fn log(self, rhs: Rhs) -> Self::Output;
 }
 
 /// Exponential function.
@@ -882,6 +943,46 @@ pub trait Round {
     fn round(self) -> Self::Output;
 }
 
+/// Trucation function.
+///
+/// Returns the integer part of `self`.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.5, 3.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -6.0, 3.0]).unwrap();
+/// assert_eq!(a.trunc(), b);
+/// ```
+pub trait Trunc {
+    /// Output type.
+    type Output;
+    /// Returns the integer part of `self`.
+    fn trunc(self) -> Self::Output;
+}
+
+/// Fractional part function.
+///
+/// Returns the fractional part of `self`.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.5, 3.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.01, -0.37, -0.5, 0.0]).unwrap();
+/// assert!(a.fract().sub(&b).abs() < f64::EPSILON);
+/// ```
+pub trait Fract {
+    /// Output type.
+    type Output;
+    /// Returns the fractional part of `self`.
+    fn fract(self) -> Self::Output;
+}
+
 /// Inverse function.
 ///
 /// Returns `1 / self`.
@@ -1351,19 +1452,19 @@ macro_rules! ops_impl_integer {
         binary_op_impl! { Min for $t; min; std::cmp::Ord::min }
         binary_op_impl! { Pow<u32> for $t; pow; Self::pow }
 
-        impl Argmax for $t {
+        impl MaxMask for $t {
             type Output = $t;
             #[inline]
-            fn argmax(self, rhs: $t) -> Self::Output {
-                if rhs > self { 1 } else { 0 }
+            fn max_mask(self, rhs: $t) -> Self::Output {
+                if self > rhs { 1 } else { 0 }
             }
         }
 
-        impl Argmin for $t {
+        impl MinMask for $t {
             type Output = $t;
             #[inline]
-            fn argmin(self, rhs: $t) -> Self::Output {
-                if rhs < self { 1 } else { 0 }
+            fn min_mask(self, rhs: $t) -> Self::Output {
+                if self < rhs { 1 } else { 0 }
             }
         }
     )*};
@@ -1383,6 +1484,7 @@ ops_impl_signed_integer! { i128 i64 i32 i16 i8 }
 macro_rules! ops_impl_float {
     ($($t:ty)*) => {$(
         binary_op_impl! { Atan2 for $t; atan2; Self::atan2 }
+        binary_op_impl! { Hypot for $t; hypot; Self::hypot }
         binary_op_impl! { Copysign for $t; copysign; Self::copysign }
         binary_op_impl! { DivEuclid for $t; div_euclid; Self::div_euclid }
         binary_op_impl! { RemEuclid for $t; rem_euclid; Self::rem_euclid }
@@ -1390,6 +1492,7 @@ macro_rules! ops_impl_float {
         binary_op_impl! { Min for $t; min; Self::min }
         binary_op_impl! { Pow for $t; pow; Self::powf }
         binary_op_impl! { Pow<i32> for $t; pow; Self::powi }
+        binary_op_impl! { Log for $t; log; Self::log }
         binary_op_impl! { AddJ<$t, Output = Complex<$t>> for $t; add_j; Complex::new }
         binary_op_impl! { MulEPowJ<$t, Output = Complex<$t>> for $t; mul_e_pow_j; Complex::from_polar; &self; &rhs }
         fn_impl! { Exp for $t; exp; Self::exp }
@@ -1418,24 +1521,26 @@ macro_rules! ops_impl_float {
         fn_impl! { Ceil for $t; ceil; Self::ceil }
         fn_impl! { Floor for $t; floor; Self::floor }
         fn_impl! { Round for $t; round; Self::round }
+        fn_impl! { Trunc for $t; trunc; Self::trunc }
+        fn_impl! { Fract for $t; fract; Self::fract }
         fn_impl! { Recip for $t; recip; Self::recip }
         fn_impl! { ToDegrees for $t; to_degrees; Self::to_degrees }
         fn_impl! { ToRadians for $t; to_radians; Self::to_radians }
         ternary_op_impl! { MulAdd for $t; mul_add; Self::mul_add }
 
-        impl Argmax for $t {
+        impl MaxMask for $t {
             type Output = $t;
             #[inline]
-            fn argmax(self, rhs: $t) -> Self::Output {
-                if rhs > self { 1.0 } else { 0.0 }
+            fn max_mask(self, rhs: $t) -> Self::Output {
+                if self > rhs { 1.0 } else { 0.0 }
             }
         }
 
-        impl Argmin for $t {
+        impl MinMask for $t {
             type Output = $t;
             #[inline]
-            fn argmin(self, rhs: $t) -> Self::Output {
-                if rhs < self { 1.0 } else { 0.0 }
+            fn min_mask(self, rhs: $t) -> Self::Output {
+                if self < rhs { 1.0 } else { 0.0 }
             }
         }
 
@@ -1492,7 +1597,7 @@ macro_rules! ops_impl_complex_float {
         fn_impl! { Recip for Complex<$t>; recip; Self::inv; &self }
         fn_impl! { Conj for Complex<$t>; conj; Self::conj; &self }
         fn_impl! { Norm<Output=$t> for Complex<$t>; norm; Self::norm; &self }
-        fn_impl! { NormSqr<Output=$t> for Complex<$t>; norm_sqr; Self::norm; &self }
+        fn_impl! { NormSqr<Output=$t> for Complex<$t>; norm_sqr; Self::norm_sqr; &self }
         fn_impl! { Arg<Output=$t> for Complex<$t>; arg; Self::arg; &self }
 
         impl Re for Complex<$t> {
@@ -1532,14 +1637,16 @@ macro_rules! op_impl_ref {
 
 op_impl_ref! {
     Atan2, atan2;
+    Hypot, hypot;
     Copysign, copysign;
     DivEuclid, div_euclid;
     Max, max;
     Min, min;
-    Argmax, argmax;
-    Argmin, argmin;
+    MaxMask, max_mask;
+    MinMask, min_mask;
     RemEuclid, rem_euclid;
     Pow, pow;
+    Log, log;
     AddJ, add_j;
     MulEPowJ, mul_e_pow_j
 }
@@ -1585,6 +1692,8 @@ fn_impl_ref! {
     Ceil, ceil;
     Floor, floor;
     Round, round;
+    Trunc, trunc;
+    Fract, fract;
     Recip, recip;
     ToDegrees, to_degrees;
     ToRadians, to_radians;
@@ -1676,6 +1785,46 @@ pub trait MulAddAssign<Rhs0 = Self, Rhs1 = Self> {
 pub trait Atan2Assign<Rhs = Self> {
     /// Performs the in-place four quadrant arctangent operation.
     fn atan2_assign(&mut self, rhs: Rhs);
+}
+
+/// In-place hypotenuse operator.
+///
+/// Calculates the length of the hypotenuse of a right-angle triangle
+/// given legs of length `self` and `rhs`.
+///
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use std::f64::consts::SQRT_2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![SQRT_2, 1.0, 1.0, SQRT_2]).unwrap();
+/// a.hypot_assign(&b);
+/// a.sub_assign(&c);
+/// a.abs_assign();
+/// assert!(a < f64::EPSILON);
+/// ```
+///
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use std::f64::consts::SQRT_2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![SQRT_2, 1.0, 1.0, SQRT_2]).unwrap();
+/// a.hypot_assign(1.0);
+/// a.sub_assign(&b);
+/// a.abs_assign();
+/// assert!(a < f64::EPSILON);
+/// ```
+pub trait HypotAssign<Rhs = Self> {
+    /// Calculates the length of the hypotenuse of a right-angle triangle
+    /// given legs of length `self` and `rhs`.
+    fn hypot_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place copysign operator.
@@ -1838,41 +1987,11 @@ pub trait MinAssign<Rhs = Self> {
     fn min_assign(&mut self, rhs: Rhs);
 }
 
-/// In-place argmax operator.
+/// In-place mask of max operator.
 ///
-/// Computes the argmax of `self` and `rhs`.
-///
-/// Note that `Rhs` is `Self` by default, but this is not mandatory.
-///
-/// # Examples
-/// ```
-/// use melange::prelude::*;
-/// use typenum::U2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
-/// a.argmax_assign(&b);
-/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 0.0, 1.0, 0.0]).unwrap();
-/// assert_eq!(a, c);
-/// ```
-///
-/// ```
-/// use melange::prelude::*;
-/// use typenum::U2;
-///
-/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
-/// a.argmax_assign(5.0);
-/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
-/// assert_eq!(a, b);
-/// ```
-pub trait ArgmaxAssign<Rhs = Self> {
-    /// Performs the in-place argmax operation.
-    fn argmax_assign(&mut self, rhs: Rhs);
-}
-
-/// In-place argmin operator.
-///
-/// Computes the argmin of `self` and `rhs`.
+/// Computes the mask of max on `self`:
+/// * `1` if `self` is the max,
+/// * `0` otherwise.
 ///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory.
 ///
@@ -1883,7 +2002,7 @@ pub trait ArgmaxAssign<Rhs = Self> {
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
-/// a.argmin_assign(&b);
+/// a.max_mask_assign(&b);
 /// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 0.0, 1.0]).unwrap();
 /// assert_eq!(a, c);
 /// ```
@@ -1893,13 +2012,47 @@ pub trait ArgmaxAssign<Rhs = Self> {
 /// use typenum::U2;
 ///
 /// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
-/// a.argmin_assign(5.0);
+/// a.max_mask_assign(5.0);
 /// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 1.0, 0.0, 1.0]).unwrap();
 /// assert_eq!(a, b);
 /// ```
-pub trait ArgminAssign<Rhs = Self> {
+pub trait MaxMaskAssign<Rhs = Self> {
+    /// Performs the in-place argmax operation.
+    fn max_mask_assign(&mut self, rhs: Rhs);
+}
+
+/// In-place mask of min operator.
+///
+/// Computes the mask of min on `self`:
+/// * `1` if `self` is the min,
+/// * `0` otherwise.
+///
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![7.0, -3.0, 1.0, 12.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![5.0, -8.0, 6.0, 4.0]).unwrap();
+/// a.min_mask_assign(&b);
+/// let c: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a, c);
+/// ```
+///
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![-1.0, 10.0, 3.0, 6.0]).unwrap();
+/// a.min_mask_assign(5.0);
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, 1.0, 0.0]).unwrap();
+/// assert_eq!(a, b);
+/// ```
+pub trait MinMaskAssign<Rhs = Self> {
     /// Performs the in-place max operation.
-    fn argmin_assign(&mut self, rhs: Rhs);
+    fn min_mask_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place power operator.
@@ -1921,6 +2074,28 @@ pub trait ArgminAssign<Rhs = Self> {
 pub trait PowAssign<Rhs = Self> {
     /// Performs the in-place max operation.
     fn pow_assign(&mut self, rhs: Rhs);
+}
+
+/// In-place arbitrary base logarithm function.
+///
+/// Computes the logarithm of `self` with respect to an arbitrary base.
+///  
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use std::f64::consts::E;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![3.0, 9.0, 9.0, 3.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, 2.0, 1.0]).unwrap();
+/// a.log_assign(3.0);
+/// a.sub_assign(&b);
+/// a.abs_assign();
+/// assert!(a < f64::EPSILON);
+/// ```
+pub trait LogAssign<Rhs = Self> {
+    /// Returns the base `rhs` logarithm of `self`.
+    fn log_assign(&mut self, rhs: Rhs);
 }
 
 /// In-place exponential function.
@@ -2500,6 +2675,46 @@ pub trait RoundAssign {
     fn round_assign(&mut self);
 }
 
+/// In-place trucation function.
+///
+/// Retains the integer part of `self`.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.5, 3.0]).unwrap();
+/// a.trunc_assign();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, -2.0, -6.0, 3.0]).unwrap();
+/// assert_eq!(a, b);
+/// ```
+pub trait TruncAssign {
+    /// Retains the integer part of `self`.
+    fn trunc_assign(&mut self);
+}
+
+/// In-place fractional part function.
+///
+/// Retains the fractional part of `self`.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.01, -2.37, -6.5, 3.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.01, -0.37, -0.5, 0.0]).unwrap();
+/// a.fract_assign();
+/// a.sub_assign(&b);
+/// a.abs_assign();
+/// assert!(a < f64::EPSILON);
+/// ```
+pub trait FractAssign {
+    /// Retains the fractional part of `self`.
+    fn fract_assign(&mut self);
+}
+
 /// In-place inverse function.
 ///
 /// `self -> 1 / self`
@@ -2678,17 +2893,17 @@ macro_rules! in_place_ops_impl_integer {
         in_place_binary_op_impl! { MinAssign for $t; min_assign; std::cmp::Ord::min }
         in_place_binary_op_impl! { PowAssign<u32> for $t; pow_assign; Self::pow }
 
-        impl ArgmaxAssign for $t {
+        impl MaxMaskAssign for $t {
             #[inline]
-            fn argmax_assign(&mut self, rhs: $t) {
-                *self = if rhs > *self { 1 } else { 0 };
+            fn max_mask_assign(&mut self, rhs: $t) {
+                *self = if *self > rhs { 1 } else { 0 };
             }
         }
 
-        impl ArgminAssign for $t {
+        impl MinMaskAssign for $t {
             #[inline]
-            fn argmin_assign(&mut self, rhs: $t) {
-                *self = if rhs < *self { 1 } else { 0 };
+            fn min_mask_assign(&mut self, rhs: $t) {
+                *self = if *self < rhs { 1 } else { 0 };
             }
         }
 
@@ -2715,6 +2930,7 @@ in_place_ops_impl_signed_integer! { i128 i64 i32 i16 i8 }
 macro_rules! in_place_ops_impl_float {
     ($($t:ty)*) => {$(
         in_place_binary_op_impl! { Atan2Assign for $t; atan2_assign; Self::atan2 }
+        in_place_binary_op_impl! { HypotAssign for $t; hypot_assign; Self::hypot }
         in_place_binary_op_impl! { CopysignAssign for $t; copysign_assign; Self::copysign }
         in_place_binary_op_impl! { DivEuclidAssign for $t; div_euclid_assign; Self::div_euclid }
         in_place_binary_op_impl! { RemEuclidAssign for $t; rem_euclid_assign; Self::rem_euclid }
@@ -2722,6 +2938,7 @@ macro_rules! in_place_ops_impl_float {
         in_place_binary_op_impl! { MinAssign for $t; min_assign; Self::min }
         in_place_binary_op_impl! { PowAssign for $t; pow_assign; Self::powf }
         in_place_binary_op_impl! { PowAssign<i32> for $t; pow_assign; Self::powi }
+        in_place_binary_op_impl! { LogAssign for $t; log_assign; Self::log }
         in_place_fn_impl! { ExpAssign for $t; exp_assign; Self::exp }
         in_place_fn_impl! { Exp2Assign for $t; exp2_assign; Self::exp2 }
         in_place_fn_impl! { ExpM1Assign for $t; exp_m1_assign; Self::exp_m1 }
@@ -2748,22 +2965,24 @@ macro_rules! in_place_ops_impl_float {
         in_place_fn_impl! { CeilAssign for $t; ceil_assign; Self::ceil }
         in_place_fn_impl! { FloorAssign for $t; floor_assign; Self::floor }
         in_place_fn_impl! { RoundAssign for $t; round_assign; Self::round }
+        in_place_fn_impl! { TruncAssign for $t; trunc_assign; Self::trunc }
+        in_place_fn_impl! { FractAssign for $t; fract_assign; Self::fract }
         in_place_fn_impl! { RecipAssign for $t; recip_assign; Self::recip }
         in_place_fn_impl! { ToDegreesAssign for $t; to_degrees_assign; Self::to_degrees }
         in_place_fn_impl! { ToRadiansAssign for $t; to_radians_assign; Self::to_radians }
         in_place_ternary_op_impl! { MulAddAssign for $t; mul_add_assign; Self::mul_add }
 
-        impl ArgmaxAssign for $t {
+        impl MaxMaskAssign for $t {
             #[inline]
-            fn argmax_assign(&mut self, rhs: $t) {
-                *self = if rhs > *self { 1.0 } else { 0.0 };
+            fn max_mask_assign(&mut self, rhs: $t) {
+                *self = if *self > rhs { 1.0 } else { 0.0 };
             }
         }
 
-        impl ArgminAssign for $t {
+        impl MinMaskAssign for $t {
             #[inline]
-            fn argmin_assign(&mut self, rhs: $t) {
-                *self = if rhs < *self { 1.0 } else { 0.0 };
+            fn min_mask_assign(&mut self, rhs: $t) {
+                *self = if *self < rhs { 1.0 } else { 0.0 };
             }
         }
 

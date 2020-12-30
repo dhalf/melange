@@ -176,6 +176,23 @@ binary_op_impl! {
 }
 
 binary_op_impl! {
+    Hypot; hypot; "hypot_back";
+    where
+        Vrhs: AllocLike<Scalar = T>,
+        &'a Vrhs | 'a, 'b: Div<&'b V::Alloc, Output = Vrhs::Alloc>,
+        &'a B | 'a, 'b: Mul<&'b Vrhs::Alloc, Output = B::Alloc>,
+        &'a V | 'a, 'b: Div<&'b V::Alloc, Output = V::Alloc>,
+        B | 'a: MulAssign<&'a V::Alloc>;
+    (self, rhs) => move |mut grad| {
+        let result = self.value.hypot(&rhs.value);
+        rhs.backward(grad.mul(&rhs.value.div(&result)));
+        
+        grad.mul_assign(&self.value.div(&result));
+        self.backward(grad);
+    }
+}
+
+binary_op_impl! {
     Copysign; copysign; "copysign_back";
     where
         Vrhs: AllocLike,
@@ -194,18 +211,17 @@ binary_op_impl! {
 binary_op_impl! {
     Max; max; "max_back";
     where
-        &'a V | 'a, 'b: Argmax<&'b Vrhs, Output = V::Alloc>,
+        &'a V | 'a, 'b: MaxMask<&'b Vrhs, Output = V::Alloc>,
+        &'a V::Alloc | 'a: MulAdd<T, T, Output = V::Alloc>,
         B::Alloc | 'a: MulAssign<&'a V::Alloc>,
         T: Neg<Output = T> | One,
-        V::Alloc: MulAddAssign<T, T>,
         B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
-        let mut mask = self.value.argmax(&rhs.value);
+        let mask = self.value.max_mask(&rhs.value);
         let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_assign(&mask);
+        rhs_grad.mul_assign(&mask.mul_add(-T::ONE, T::ONE));
         rhs.backward(rhs_grad);
 
-        mask.mul_add_assign(-T::ONE, T::ONE);
         grad.mul_assign(&mask);
         self.backward(grad);
     }
@@ -214,18 +230,17 @@ binary_op_impl! {
 binary_op_impl! {
     Min; min; "min_back";
     where
-        &'a V | 'a, 'b: Argmin<&'b Vrhs, Output = V::Alloc>,
+        &'a V | 'a, 'b: MinMask<&'b Vrhs, Output = V::Alloc>,
+        &'a V::Alloc | 'a: MulAdd<T, T, Output = V::Alloc>,
         B::Alloc | 'a: MulAssign<&'a V::Alloc>,
         T: Neg<Output = T> | One,
-        V::Alloc: MulAddAssign<T, T>,
         B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
-        let mut mask = self.value.argmin(&rhs.value);
+        let mask = self.value.min_mask(&rhs.value);
         let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_assign(&mask);
+        rhs_grad.mul_assign(&mask.mul_add(-T::ONE, T::ONE));
         rhs.backward(rhs_grad);
 
-        mask.mul_add_assign(-T::ONE, T::ONE);
         grad.mul_assign(&mask);
         self.backward(grad);
     }
@@ -416,15 +431,55 @@ one_param_op_impl! {
 }
 
 one_param_op_impl! {
+    Atan2; atan2; "atan2_back";
+    where
+        T: Pow<i32, Output = T> | Neg<Output = T> | One | Copy,
+        &'a V | 'a: Pow<i32, Output = V::Alloc>,
+        V::Alloc | 'a: AddAssign<T>,
+        B | 'a: MulAssign<T>,
+        B | 'a: DivAssign<&'a V::Alloc>;
+    (self, rhs) => move |mut grad| {
+        let mut div = self.value.pow(2);
+        div.add_assign(rhs.pow(2));
+        grad.mul_assign(rhs);
+        grad.div_assign(&div);
+        self.backward(grad);
+    }
+}
+
+one_param_op_impl! {
+    Hypot; hypot; "hypot_scalar_back";
+    where
+        B | 'a: MulAssign<&'a V>,
+        B | 'a: DivAssign<&'a V::Alloc>;
+    (self, rhs) => move |mut grad| {
+        grad.mul_assign(&self.value);
+        grad.div_assign(&self.value.hypot(rhs));
+        self.backward(grad);
+    }
+}
+
+one_param_op_impl! {
+    Copysign; copysign; "copysign_back";
+    where
+        T: Signum<Output = T> | Copy,
+        &'a V | 'a: Signum<Output = V::Alloc>,
+        B | 'a: MulAssign<&'a V::Alloc>,
+        B: MulAssign<T>;
+    (self, rhs) => move |mut grad| {
+        grad.mul_assign(&self.value.signum());
+        grad.mul_assign(rhs.signum());
+        self.backward(grad);
+    }
+}
+
+one_param_op_impl! {
     Max; max; "max_scalar_back";
     where
-        &'a V | 'a: Argmax<T, Output = V::Alloc>,
-        T: Neg<Output = T> | One,
-        V::Alloc: MulAddAssign<T, T>,
+        &'a V | 'a: MaxMask<T, Output = V::Alloc>,
         B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
-        let mut mask = self.value.argmax(rhs);
-        mask.mul_add_assign(-T::ONE, T::ONE);
+        let mask = self.value.max_mask(rhs);
         grad.mul_assign(&mask);
         self.backward(grad);
     }
@@ -433,13 +488,10 @@ one_param_op_impl! {
 one_param_op_impl! {
     Min; min; "min_scalar_back";
     where
-        &'a V | 'a: Argmin<T, Output = V::Alloc>,
-        T: Neg<Output = T> | One,
-        V::Alloc: MulAddAssign<T, T>,
+        &'a V | 'a: MinMask<T, Output = V::Alloc>,
         B | 'a: MulAssign<&'a V::Alloc>;
     (self, rhs) => move |mut grad| {
-        let mut mask = self.value.argmin(rhs);
-        mask.mul_add_assign(-T::ONE, T::ONE);
+        let mask = self.value.min_mask(rhs);
         grad.mul_assign(&mask);
         self.backward(grad);
     }
@@ -462,6 +514,21 @@ one_param_op_impl! {
             part_grad.conj_assign();
             grad.mul_assign(&part_grad);
         }
+        self.backward(grad);
+    }
+}
+
+one_param_op_impl! {
+    Log; log; "log_back";
+    where
+        T: Ln<Output = T> | Copy,
+        &'a V | 'a: Mul<T, Output = V::Alloc>,
+        V::Alloc: ConjAssign,
+        B |'a: DivAssign<&'a V::Alloc>;
+    (self, rhs) => move |mut grad| {
+        let mut part_grad = self.value.mul(rhs.ln());
+        part_grad.conj_assign();
+        grad.div_assign(&part_grad);
         self.backward(grad);
     }
 }
@@ -586,6 +653,91 @@ reversed_one_param_op_impl! {
         part_grad.mul_assign(-self);
         part_grad.conj_assign();
         grad.mul_assign(&part_grad);
+        rhs.backward(grad);
+    }
+}
+
+reversed_one_param_op_impl! {
+    Atan2; atan2; "scalar_atan2_back";
+    where
+        &'a V::Alloc | 'a, 'b: Atan2<&'b V, Output = V::Alloc>,
+        Self: Pow<i32, Output = Self> | Neg<Output = Self> | One | Copy,
+        &'a V | 'a: Pow<i32, Output = V::Alloc>,
+        V::Alloc | 'a: AddAssign<Self>,
+        B | 'a: MulAssign<&'a V>,
+        B | 'a: MulAssign<Self>,
+        B | 'a: DivAssign<&'a V::Alloc>;
+    (self, rhs) => {
+        let lhs = rhs.value.fill_like(self);
+        lhs.atan2(&rhs.value)
+    }
+    => move |mut grad| {
+        let mut div = rhs.value.pow(2);
+        div.add_assign(self.pow(2));
+        grad.mul_assign(&rhs.value);
+        grad.mul_assign(self);
+        grad.div_assign(&div);
+        grad.mul_assign(-Self::ONE);
+        rhs.backward(grad);
+    }
+}
+
+reversed_one_param_op_impl! {
+    Hypot; hypot; "scalar_hypot_back";
+    where
+        B | 'a: MulAssign<&'a V>,
+        B | 'a: DivAssign<&'a V::Alloc>;
+    (self, rhs) => {
+        rhs.value.hypot(self)
+    }
+    => move |mut grad| {
+        grad.mul_assign(&rhs.value);
+        grad.div_assign(&rhs.value.hypot(self));
+        rhs.backward(grad);
+    }
+}
+
+reversed_one_param_op_impl! {
+    Copysign; copysign; "scalar_copysign_back";
+    where
+        &'a V::Alloc | 'a, 'b: Copysign<&'b V, Output = V::Alloc>,
+        B: ZeroOut;
+    (self, rhs) => {
+        let lhs = rhs.value.fill_like(self);
+        lhs.copysign(&rhs.value)
+    }
+    => move |mut grad| {
+        grad.zero_out();
+        rhs.backward(grad);
+    }
+}
+
+reversed_one_param_op_impl! {
+    Max; max; "scalar_max_back";
+    where
+        &'a V | 'a: MaxMask<Self, Output = V::Alloc>,
+        B | 'a: MulAssign<&'a V::Alloc>;
+    (self, rhs) => {
+        rhs.value.max(self)
+    }
+    => move |mut grad| {
+        let mask = rhs.value.max_mask(self);
+        grad.mul_assign(&mask);
+        rhs.backward(grad);
+    }
+}
+
+reversed_one_param_op_impl! {
+    Min; min; "scalar_min_back";
+    where
+        &'a V | 'a: MinMask<Self, Output = V::Alloc>,
+        B | 'a: MulAssign<&'a V::Alloc>;
+    (self, rhs) => {
+        rhs.value.min(self)
+    }
+    => move |mut grad| {
+        let mask = rhs.value.min_mask(self);
+        grad.mul_assign(&mask);
         rhs.backward(grad);
     }
 }
@@ -1113,7 +1265,9 @@ zero_grad_ops_impl! {
     Signum, signum, "signum_back";
     Ceil, ceil, "ceil_back";
     Floor, floor, "floor_back";
-    Round, round, "round_back"
+    Round, round, "round_back";
+    Trunc, trunc, "trunc_assign";
+    Fract, fract, "fract_assign"
 }
 
 fn_impl! {

@@ -123,9 +123,10 @@ binary_inplace_op_impls! {
     RemAssign, rem_assign;
     MaxAssign, max_assign;
     MinAssign, min_assign;
-    ArgmaxAssign, argmax_assign;
-    ArgminAssign, argmin_assign;
+    MaxMaskAssign, max_mask_assign;
+    MinMaskAssign, min_mask_assign;
     Atan2Assign, atan2_assign;
+    HypotAssign, hypot_assign;
     CopysignAssign, copysign_assign;
     DivEuclidAssign, div_euclid_assign;
     RemEuclidAssign, rem_euclid_assign
@@ -173,9 +174,10 @@ one_param_inplace_op_impls! {
     RemAssign, rem_assign;
     MaxAssign, max_assign;
     MinAssign, min_assign;
-    ArgmaxAssign, argmax_assign;
-    ArgminAssign, argmin_assign;
+    MaxMaskAssign, max_mask_assign;
+    MinMaskAssign, min_mask_assign;
     Atan2Assign, atan2_assign;
+    HypotAssign, hypot_assign;
     CopysignAssign, copysign_assign;
     DivEuclidAssign, div_euclid_assign;
     RemEuclidAssign, rem_euclid_assign;
@@ -184,7 +186,8 @@ one_param_inplace_op_impls! {
     PowAssign<f32>, pow_assign;
     PowAssign<f64>, pow_assign;
     PowAssign<Complex32>, pow_assign;
-    PowAssign<Complex64>, pow_assign
+    PowAssign<Complex64>, pow_assign;
+    LogAssign, log_assign
 }
 
 // ------------
@@ -243,6 +246,8 @@ inplace_fn_impls! {
     CeilAssign, ceil_assign;
     FloorAssign, floor_assign;
     RoundAssign, round_assign;
+    TruncAssign, trunc_assign;
+    FractAssign, fract_assign;
     RecipAssign, recip_assign;
     ToDegreesAssign, to_degrees_assign;
     ToRadiansAssign, to_radians_assign;
@@ -394,14 +399,16 @@ op_impls! {
     Div, div, DivAssign, div_assign;
     Rem, rem, RemAssign, rem_assign;
     Atan2, atan2, Atan2Assign, atan2_assign;
+    Hypot, hypot, HypotAssign, hypot_assign;
     Copysign, copysign, CopysignAssign, copysign_assign;
     DivEuclid, div_euclid, DivEuclidAssign, div_euclid_assign;
     Max, max, MaxAssign, max_assign;
     Min, min, MinAssign, min_assign;
-    Argmax, argmax, ArgmaxAssign, argmax_assign;
-    Argmin, argmin, ArgminAssign, argmin_assign;
+    MaxMask, max_mask, MaxMaskAssign, max_mask_assign;
+    MinMask, min_mask, MinMaskAssign, min_mask_assign;
     RemEuclid, rem_euclid, RemEuclidAssign, rem_euclid_assign;
-    Pow, pow, PowAssign, pow_assign
+    Pow, pow, PowAssign, pow_assign;
+    Log, log, LogAssign, log_assign
 }
 
 macro_rules! fn_impls {
@@ -451,6 +458,8 @@ fn_impls! {
     Ceil, ceil, CeilAssign, ceil_assign;
     Floor, floor, FloorAssign, floor_assign;
     Round, round, RoundAssign, round_assign;
+    Trunc, trunc, TruncAssign, trunc_assign;
+    Fract, fract, FractAssign, fract_assign;
     Recip, recip, RecipAssign, recip_assign;
     ToDegrees, to_degrees, ToDegreesAssign, to_degrees_assign;
     ToRadians, to_radians, ToRadiansAssign, to_radians_assign;
