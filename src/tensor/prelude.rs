@@ -13,4 +13,5 @@ pub use super::{
     Strided, Tensor, Transposed,
 };
 pub use std::convert::TryFrom;
-pub use std::ops::{Add, Div, Mul, Rem, Sub};
+pub use super::elementwise_ops::TensorCast;
+//pub use std::ops::{Add, Div, Mul, Rem, Sub};

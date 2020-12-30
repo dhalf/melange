@@ -178,3 +178,50 @@ where
         <A as DynamicAlloc<T, S>>::to_contiguous(self)
     }
 }
+
+impl<T> AllocLike for T
+where
+    T: Copy,
+{
+    type Alloc = T;
+    type Scalar = T;
+    fn fill_like(&self, value: Self::Scalar) -> Self::Alloc {
+        value
+    }
+    fn to_contiguous(&self) -> Self::Alloc {
+        *self
+    }
+}
+
+pub trait AllocSameShape<T> {
+    type Alloc;
+    fn fill_same_shape(&self, value: T) -> Self::Alloc;
+}
+
+impl<Y, Z, T, S, A, D, L, U> AllocSameShape<U> for Tensor<Static, Y, Z, T, S, A, D, L>
+where
+    T: Copy,
+    S: StaticShape,
+    A: StaticAlloc<U, S>,
+    L: Layout<S::Len>,
+    for<'a> &'a Self: StridedIterator<Item = &'a [T]>,
+{
+    type Alloc = <A as StaticAlloc<U, S>>::Alloc;
+    fn fill_same_shape(&self, value: U) -> Self::Alloc {
+        <A as StaticAlloc<U, S>>::fill(value)
+    }
+}
+
+impl<Y, Z, T, S, A, D, L, U> AllocSameShape<U> for Tensor<Dynamic, Y, Z, T, S, A, D, L>
+where
+    T: Copy,
+    S: Shape,
+    A: DynamicAlloc<U, S>,
+    L: Layout<S::Len>,
+    for<'a> &'a Self: StridedIterator<Item = &'a [T]>,
+{
+    type Alloc = <A as DynamicAlloc<U, S>>::Alloc;
+    fn fill_same_shape(&self, value: U) -> Self::Alloc {
+        <A as DynamicAlloc<U, S>>::fill(self.shape(), value)
+    }
+}

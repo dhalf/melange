@@ -33,7 +33,6 @@ impl<V, G, B> fmt::Debug for InternalVariable<V, G, B>
 where
     V: fmt::Debug,
     G: fmt::Debug,
-    B: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Variable")
@@ -46,7 +45,7 @@ where
 
 /// Core type of `backprop` module that represents a node in the computation
 /// graph. It contains a combination of `Rc` and `RefCell` to allow
-/// mutable reference counting of the actual `BackpropNode`s.
+/// mutable reference counting of the [`InternalVariables`](InternalVariables)s.
 pub struct Variable<T, V, G, B>(
     pub(super) Rc<InternalVariable<V, G, B>>,
     pub(super) PhantomData<T>,
@@ -56,7 +55,6 @@ impl<T, V, G, B> fmt::Debug for Variable<T, V, G, B>
 where
     V: fmt::Debug,
     G: fmt::Debug,
-    B: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -102,11 +100,11 @@ where
     T: Differentiable + Zero,
     V: AllocLike<Scalar = T>,
 {
-    fn new(tensor: V, require_grad: bool) -> Self {
-        let grad = tensor.fill_like(T::ZERO);
+    fn new(value: V, require_grad: bool) -> Self {
+        let grad = value.fill_like(T::ZERO);
         Variable(
             Rc::new(InternalVariable {
-                value: tensor,
+                value: value,
                 grad: RefCell::new(if require_grad { Some(grad) } else { None }),
                 backward_op_name: "no_op",
                 backward_closure: Box::new(|_grad| ()),

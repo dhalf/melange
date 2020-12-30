@@ -24,7 +24,7 @@
 //! [`Complex64`]: https://docs.rs/num-complex/0.2.4/num_complex/type.Complex64.html
 //! [`Complex32`]: https://docs.rs/num-complex/0.2.4/num_complex/type.Complex32.html
 
-use num_complex::{Complex32, Complex64};
+use num_complex::{Complex, Complex32, Complex64};
 
 /// Four quadrant arctangent operator.
 ///
@@ -1025,6 +1025,33 @@ pub trait Norm {
     fn norm(self) -> Self::Output;
 }
 
+/// Squared L2-norm, squared modulus of a complex number.
+///
+/// Returns `||self||^2`.
+///  
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+///
+/// let a: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(2.0, 0.0), Complex::new(0.0, 2.0),
+///     Complex::new(-2.0, 0.0), Complex::new(0.0, -2.0)
+/// ]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     4.0, 4.0,
+///     4.0, 4.0
+/// ]).unwrap();
+/// assert_eq!(a.norm_sqr(), b);
+/// ```
+pub trait NormSqr {
+    /// Output type.
+    type Output;
+    /// Returns the squared L2-norm.
+    fn norm_sqr(self) -> Self::Output;
+}
+
 /// Argument of a complex number.
 ///
 /// Returns `arg(self)` (in radians).
@@ -1055,7 +1082,7 @@ pub trait Arg {
 
 /// Conjugate of a complex number.
 ///
-/// Returns `a - ib` where `self = a + ib`.
+/// Returns `a - jb` where `self = a + jb`.
 ///  
 /// # Examples
 /// ```
@@ -1120,22 +1147,155 @@ pub trait MulAdd<Rhs0 = Self, Rhs1 = Self> {
     fn mul_add(self, rhs0: Rhs0, rhs1: Rhs1) -> Self::Output;
 }
 
+/// Cartesian complex operator.
+///
+/// Returns the complex `self + j * rhs`.
+///
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, -1.0, 0.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, 1.0, 0.0, -1.0]).unwrap();
+/// let c: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(1.0, 0.0), Complex::new(0.0, 1.0),
+///     Complex::new(-1.0, 0.0), Complex::new(0.0, -1.0)
+/// ]).unwrap();
+/// assert_eq!(a.add_j(&b), c);
+/// ```
+///
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, -1.0, 0.0]).unwrap();
+/// let b: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(1.0, 0.0), Complex::new(0.0, 0.0),
+///     Complex::new(-1.0, 0.0), Complex::new(0.0, 0.0)
+/// ]).unwrap();
+/// assert_eq!(a.add_j(0.0), b);
+/// ```
+pub trait AddJ<Rhs = Self> {
+    /// Output type.
+    type Output;
+    /// Outputs the complex `self + j * rhs`.
+    fn add_j(self, rhs: Rhs) -> Self::Output;
+}
+
+/// Multiply by j operator.
+///
+/// Returns the complex `j * self`.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 2.0, -1.0, 5.0]).unwrap();
+/// let b: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(0.0, 1.0), Complex::new(0.0, 2.0),
+///     Complex::new(0.0, -1.0), Complex::new(0.0, 5.0)
+/// ]).unwrap();
+/// assert_eq!(a.j(), b);
+/// ```
+pub trait J {
+    /// Output type.
+    type Output;
+    /// Outputs the complex `j * self`.
+    fn j(self) -> Self::Output;
+}
+
+/// Polar complex operator.
+///
+/// Returns the complex `self * e^(j * rhs)`.
+///
+/// Note that `Rhs` is `Self` by default, but this is not mandatory.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+/// use std::f64::consts::{FRAC_PI_2, PI};
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+/// let b: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, FRAC_PI_2, PI, -FRAC_PI_2]).unwrap();
+/// let c: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(1.0, 0.0), Complex::new(0.0, 1.0),
+///     Complex::new(-1.0, 0.0), Complex::new(0.0, -1.0)
+/// ]).unwrap();
+/// assert!(a.mul_e_pow_j(&b).sub(&c).re() < f64::EPSILON);
+/// assert!(a.mul_e_pow_j(&b).sub(&c).im() < f64::EPSILON);
+/// ```
+///
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![1.0, 0.0, -1.0, 0.0]).unwrap();
+/// let b: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(1.0, 0.0), Complex::new(0.0, 0.0),
+///     Complex::new(-1.0, 0.0), Complex::new(0.0, 0.0)
+/// ]).unwrap();
+/// assert!(a.mul_e_pow_j(0.0).sub(&b).re() < f64::EPSILON);
+/// assert!(a.mul_e_pow_j(0.0).sub(&b).im() < f64::EPSILON);
+/// ```
+pub trait MulEPowJ<Rhs = Self> {
+    /// Output type.
+    type Output;
+    /// Outputs the complex `self * e^(j * rhs)`.
+    fn mul_e_pow_j(self, rhs: Rhs) -> Self::Output;
+}
+
+/// Complex phase operator.
+///
+/// Returns the complex `e^(j * self)`.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+/// use num_complex::{Complex, Complex64};
+/// use std::f64::consts::{FRAC_PI_2, PI};
+///
+/// let a: StaticTensor<f64, Shape2D<U2, U2>> = Tensor::try_from(vec![0.0, FRAC_PI_2, PI, -FRAC_PI_2]).unwrap();
+/// let b: StaticTensor<Complex64, Shape2D<U2, U2>> = Tensor::try_from(vec![
+///     Complex::new(1.0, 0.0), Complex::new(0.0, 1.0),
+///     Complex::new(-1.0, 0.0), Complex::new(0.0, -1.0)
+/// ]).unwrap();
+/// assert!(a.e_pow_j().sub(&b).re() < f64::EPSILON);
+/// assert!(a.e_pow_j().sub(&b).im() < f64::EPSILON);
+/// ```
+pub trait EPowJ {
+    /// Output type.
+    type Output;
+    /// Outputs the complex `e^(j * self)`.
+    fn e_pow_j(self) -> Self::Output;
+}
+
 macro_rules! binary_op_impl {
     (
-        $trait:ident$(<$param_type:ty>)? for $t:ty;
+        $trait:ident$(<$param_type:ty$(, Output = $output_type:ty)?>)? for $t:ty;
         $trait_fn:ident;
         $inner_fn:path
-        $(;$ref:tt self)?
+        $(;$ref:tt self $(;$ref_rhs:tt rhs)?)?
     ) => {
         macro_rules! isset_or_default {
             ($var:ty) => { $var };
             () => { $t };
         }
         impl $trait$(<$param_type>)? for $t {
-            type Output = $t;
+            type Output = isset_or_default!($($($output_type)?)?);
             #[inline]
             fn $trait_fn(self, rhs: isset_or_default!($($param_type)?)) -> Self::Output {
-                $inner_fn($($ref)? self, rhs)
+                $inner_fn($($ref)? self, $($($ref_rhs)?)? rhs)
             }
         }
     };
@@ -1143,7 +1303,28 @@ macro_rules! binary_op_impl {
 
 macro_rules! ternary_op_impl {
     (
-        $trait:ident$(<$param_type0:ty, $param_type1:ty>)? for $t:ty;
+        $trait:ident$(<$param_type0:ty, $param_type1:ty$(, Output = $output_type:ty)?>)? for $t:ty;
+        $trait_fn:ident;
+        $inner_fn:path
+        $(;$ref:tt self $(;$ref_rhs:tt rhs)?)?
+    ) => {
+        macro_rules! isset_or_default {
+            ($var:ty) => { $var };
+            () => { $t };
+        }
+        impl $trait$(<$param_type0, $param_type1>)? for $t {
+            type Output = isset_or_default!($($output_type)?);
+            #[inline]
+            fn $trait_fn(self, rhs0: isset_or_default!($($param_type0)?), rhs1: isset_or_default!($($param_type1)?)) -> Self::Output {
+                $inner_fn($($ref)? self, $($($ref_rhs)?)? rhs0, $($($ref_rhs)?)? rhs1)
+            }
+        }
+    };
+}
+
+macro_rules! fn_impl {
+    (
+        $trait:ident$(<Output = $output_type:ty>)? for $t:ty;
         $trait_fn:ident;
         $inner_fn:path
         $(;$ref:tt self)?
@@ -1152,25 +1333,8 @@ macro_rules! ternary_op_impl {
             ($var:ty) => { $var };
             () => { $t };
         }
-        impl $trait$(<$param_type0, $param_type1>)? for $t {
-            type Output = $t;
-            #[inline]
-            fn $trait_fn(self, rhs0: isset_or_default!($($param_type0)?), rhs1: isset_or_default!($($param_type1)?)) -> Self::Output {
-                $inner_fn($($ref)? self, rhs0, rhs1)
-            }
-        }
-    };
-}
-
-macro_rules! fn_impl {
-    (
-        $trait:ident for $t:ty;
-        $trait_fn:ident;
-        $inner_fn:path
-        $(;$ref:tt self)?
-    ) => {
         impl $trait for $t {
-            type Output = $t;
+            type Output = isset_or_default!($($output_type)?);
             #[inline]
             fn $trait_fn(self) -> Self::Output {
                 $inner_fn($($ref)? self)
@@ -1226,6 +1390,8 @@ macro_rules! ops_impl_float {
         binary_op_impl! { Min for $t; min; Self::min }
         binary_op_impl! { Pow for $t; pow; Self::powf }
         binary_op_impl! { Pow<i32> for $t; pow; Self::powi }
+        binary_op_impl! { AddJ<$t, Output = Complex<$t>> for $t; add_j; Complex::new }
+        binary_op_impl! { MulEPowJ<$t, Output = Complex<$t>> for $t; mul_e_pow_j; Complex::from_polar; &self; &rhs }
         fn_impl! { Exp for $t; exp; Self::exp }
         fn_impl! { Exp2 for $t; exp2; Self::exp2 }
         fn_impl! { ExpM1 for $t; exp_m1; Self::exp_m1 }
@@ -1272,6 +1438,30 @@ macro_rules! ops_impl_float {
                 if rhs < self { 1.0 } else { 0.0 }
             }
         }
+
+        impl Conj for $t {
+            type Output = $t;
+            #[inline]
+            fn conj(self) -> Self::Output {
+                self
+            }
+        }
+
+        impl J for $t {
+            type Output = Complex<$t>;
+            #[inline]
+            fn j(self) -> Self::Output {
+                Complex::new(0.0, self)
+            }
+        }
+
+        impl EPowJ for $t {
+            type Output = Complex<$t>;
+            #[inline]
+            fn e_pow_j(self) -> Self::Output {
+                Complex::from_polar(&1.0, &self)
+            }
+        }
     )*};
 }
 
@@ -1279,69 +1469,129 @@ ops_impl_float! { f64 f32 }
 
 macro_rules! ops_impl_complex_float {
     ($($t:ty)*) => {$(
-        binary_op_impl! { Pow for $t; pow; Self::powc; &self }
-        binary_op_impl! { Pow<i32> for $t; pow; Self::powi; &self }
-        binary_op_impl! { Pow<u32> for $t; pow; Self::powu; &self }
-        fn_impl! { Exp for $t; exp; Self::exp; &self }
-        fn_impl! { Ln for $t; ln; Self::ln; &self }
-        fn_impl! { Sin for $t; sin; Self::sin; &self }
-        fn_impl! { Cos for $t; cos; Self::cos; &self }
-        fn_impl! { Tan for $t; tan; Self::tan; &self }
-        fn_impl! { Asin for $t; asin; Self::asin; &self }
-        fn_impl! { Acos for $t; acos; Self::acos; &self }
-        fn_impl! { Atan for $t; atan; Self::atan; &self }
-        fn_impl! { Sinh for $t; sinh; Self::sinh; &self }
-        fn_impl! { Cosh for $t; cosh; Self::cosh; &self }
-        fn_impl! { Tanh for $t; tanh; Self::tanh; &self }
-        fn_impl! { Asinh for $t; asinh; Self::asinh; &self }
-        fn_impl! { Acosh for $t; acosh; Self::acosh; &self }
-        fn_impl! { Atanh for $t; atanh; Self::atanh; &self }
-        fn_impl! { Sqrt for $t; sqrt; Self::sqrt; &self }
-        fn_impl! { Cbrt for $t; cbrt; Self::cbrt; &self }
-        fn_impl! { Recip for $t; recip; Self::inv; &self }
-        fn_impl! { Conj for $t; conj; Self::conj; &self }
-    )*};
-}
+        binary_op_impl! { Pow for Complex<$t>; pow; Self::powc; &self }
+        binary_op_impl! { Pow<i32> for Complex<$t>; pow; Self::powi; &self }
+        binary_op_impl! { Pow<u32> for Complex<$t>; pow; Self::powu; &self }
+        binary_op_impl! { Pow<$t> for Complex<$t>; pow; Self::powf; &self }
+        fn_impl! { Exp for Complex<$t>; exp; Self::exp; &self }
+        fn_impl! { Ln for Complex<$t>; ln; Self::ln; &self }
+        fn_impl! { Sin for Complex<$t>; sin; Self::sin; &self }
+        fn_impl! { Cos for Complex<$t>; cos; Self::cos; &self }
+        fn_impl! { Tan for Complex<$t>; tan; Self::tan; &self }
+        fn_impl! { Asin for Complex<$t>; asin; Self::asin; &self }
+        fn_impl! { Acos for Complex<$t>; acos; Self::acos; &self }
+        fn_impl! { Atan for Complex<$t>; atan; Self::atan; &self }
+        fn_impl! { Sinh for Complex<$t>; sinh; Self::sinh; &self }
+        fn_impl! { Cosh for Complex<$t>; cosh; Self::cosh; &self }
+        fn_impl! { Tanh for Complex<$t>; tanh; Self::tanh; &self }
+        fn_impl! { Asinh for Complex<$t>; asinh; Self::asinh; &self }
+        fn_impl! { Acosh for Complex<$t>; acosh; Self::acosh; &self }
+        fn_impl! { Atanh for Complex<$t>; atanh; Self::atanh; &self }
+        fn_impl! { Sqrt for Complex<$t>; sqrt; Self::sqrt; &self }
+        fn_impl! { Cbrt for Complex<$t>; cbrt; Self::cbrt; &self }
+        fn_impl! { Recip for Complex<$t>; recip; Self::inv; &self }
+        fn_impl! { Conj for Complex<$t>; conj; Self::conj; &self }
+        fn_impl! { Norm<Output=$t> for Complex<$t>; norm; Self::norm; &self }
+        fn_impl! { NormSqr<Output=$t> for Complex<$t>; norm_sqr; Self::norm; &self }
+        fn_impl! { Arg<Output=$t> for Complex<$t>; arg; Self::arg; &self }
 
-ops_impl_complex_float! { Complex64 Complex32 }
-
-binary_op_impl! { Pow<f64> for Complex64; pow; Self::powf; &self }
-binary_op_impl! { Pow<f32> for Complex32; pow; Self::powf; &self }
-
-macro_rules! complex_to_float_impl {
-    ($($t0:ty > $t1:ty)*) => {$(
-        impl Re for $t0 {
-            type Output = $t1;
+        impl Re for Complex<$t> {
+            type Output = $t;
             #[inline]
             fn re(self) -> Self::Output {
                 self.re
             }
         }
-        impl Im for $t0 {
-            type Output = $t1;
+
+        impl Im for Complex<$t> {
+            type Output = $t;
             #[inline]
             fn im(self) -> Self::Output {
                 self.im
             }
         }
-        impl Norm for $t0 {
-            type Output = $t1;
-            #[inline]
-            fn norm(self) -> Self::Output {
-                Self::norm(&self)
-            }
-        }
-        impl Arg for $t0 {
-            type Output = $t1;
-            #[inline]
-            fn arg(self) -> Self::Output {
-                Self::arg(&self)
+    )*};
+}
+
+ops_impl_complex_float! { f64 f32 }
+
+macro_rules! op_impl_ref {
+    ($($trait:ident, $trait_fn:ident);*) => {$(
+        impl<T, U> $trait<&U> for &T
+        where
+            T: $trait<U> + Copy,
+            U: Copy,
+        {
+            type Output = T::Output;
+            fn $trait_fn(self, rhs: &U) -> Self::Output {
+                (*self).$trait_fn(*rhs)
             }
         }
     )*};
 }
 
-complex_to_float_impl! { Complex64>f64 Complex32>f32 }
+op_impl_ref! {
+    Atan2, atan2;
+    Copysign, copysign;
+    DivEuclid, div_euclid;
+    Max, max;
+    Min, min;
+    Argmax, argmax;
+    Argmin, argmin;
+    RemEuclid, rem_euclid;
+    Pow, pow;
+    AddJ, add_j;
+    MulEPowJ, mul_e_pow_j
+}
+
+macro_rules! fn_impl_ref {
+    ($($trait:ident, $trait_fn:ident);*) => {$(
+        impl<T> $trait for &T
+        where
+            T: $trait + Copy,
+        {
+            type Output = T::Output;
+            fn $trait_fn(self) -> Self::Output {
+                (*self).$trait_fn()
+            }
+        }
+    )*};
+}
+
+fn_impl_ref! {
+    Exp, exp;
+    Exp2, exp2;
+    ExpM1, exp_m1;
+    Ln, ln;
+    Ln1p, ln_1p;
+    Log2, log2;
+    Log10, log10;
+    Sin, sin;
+    Cos, cos;
+    Tan, tan;
+    Sinh, sinh;
+    Cosh, cosh;
+    Tanh, tanh;
+    Asin, asin;
+    Acos, acos;
+    Atan, atan;
+    Asinh, asinh;
+    Acosh, acosh;
+    Atanh, atanh;
+    Sqrt, sqrt;
+    Cbrt, cbrt;
+    Abs, abs;
+    Signum, signum;
+    Ceil, ceil;
+    Floor, floor;
+    Round, round;
+    Recip, recip;
+    ToDegrees, to_degrees;
+    ToRadians, to_radians;
+    Conj, conj;
+    J, j;
+    EPowJ, e_pow_j
+}
 
 /// In-place linear transformation operator.
 ///
@@ -2344,6 +2594,25 @@ pub trait ConjAssign {
     fn conj_assign(&mut self);
 }
 
+/// Set to zero.
+///
+/// `self -> 0`.
+///  
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::U2;
+///
+/// let mut a: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 1, 1, 1]).unwrap();
+/// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![0, 0, 0, 0]).unwrap();
+/// a.zero_out();
+/// assert_eq!(a, b);
+/// ```
+pub trait ZeroOut {
+    /// Set to zero.
+    fn zero_out(&mut self);
+}
+
 macro_rules! in_place_binary_op_impl {
     (
         $trait:ident$(<$param_type:ty>)? for $t:ty;
@@ -2412,14 +2681,21 @@ macro_rules! in_place_ops_impl_integer {
         impl ArgmaxAssign for $t {
             #[inline]
             fn argmax_assign(&mut self, rhs: $t) {
-                *self = if rhs > *self { 1 } else { 0 }
+                *self = if rhs > *self { 1 } else { 0 };
             }
         }
 
         impl ArgminAssign for $t {
             #[inline]
             fn argmin_assign(&mut self, rhs: $t) {
-                *self = if rhs < *self { 1 } else { 0 }
+                *self = if rhs < *self { 1 } else { 0 };
+            }
+        }
+
+        impl ZeroOut for $t {
+            #[inline]
+            fn zero_out(&mut self) {
+                *self = 0;
             }
         }
     )*};
@@ -2480,14 +2756,26 @@ macro_rules! in_place_ops_impl_float {
         impl ArgmaxAssign for $t {
             #[inline]
             fn argmax_assign(&mut self, rhs: $t) {
-                *self = if rhs > *self { 1.0 } else { 0.0 }
+                *self = if rhs > *self { 1.0 } else { 0.0 };
             }
         }
 
         impl ArgminAssign for $t {
             #[inline]
             fn argmin_assign(&mut self, rhs: $t) {
-                *self = if rhs < *self { 1.0 } else { 0.0 }
+                *self = if rhs < *self { 1.0 } else { 0.0 };
+            }
+        }
+
+        impl ConjAssign for $t {
+            #[inline]
+            fn conj_assign(&mut self) {}
+        }
+
+        impl ZeroOut for $t {
+            #[inline]
+            fn zero_out(&mut self) {
+                *self = 0.0;
             }
         }
     )*};
@@ -2518,6 +2806,13 @@ macro_rules! in_place_ops_impl_complex_float {
         in_place_fn_impl! { CbrtAssign for $t; cbrt_assign; Self::cbrt; &self }
         in_place_fn_impl! { RecipAssign for $t; recip_assign; Self::inv; &self }
         in_place_fn_impl! { ConjAssign for $t; conj_assign; Self::conj; &self }
+
+        impl ZeroOut for $t {
+            #[inline]
+            fn zero_out(&mut self) {
+                *self = Complex::new(0.0, 0.0);
+            }
+        }
     )*};
 }
 

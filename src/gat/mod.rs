@@ -14,7 +14,7 @@
 //! a lifetime.
 //!
 //! The approach implemented in this module relies on three
-//! main pieces.
+//! facts.
 //! 1. Given a type resulting from the application of a lifetime,
 //! to a GAT, we can obtain another type corresponding to the
 //! application of another lifetime just by using the [`Gat`](Gat)

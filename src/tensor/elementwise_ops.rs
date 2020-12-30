@@ -43,10 +43,11 @@ use super::shape::{Same, Shape, TRUE};
 use super::strided_iterator::{StridedIterator, StridedIteratorMut};
 use crate::gat::{RefMutGat, StreamingIterator};
 use crate::ops::*;
-use crate::tensor::alloc::{AllocLike, DynamicAlloc, StaticAlloc};
+use crate::tensor::alloc::{AllocLike, AllocSameShape};
 use crate::tensor::{Dynamic, Static, Tensor};
 use num_complex::{Complex32, Complex64};
 use std::ops::*;
+use crate::scalar_traits::Cast;
 
 macro_rules! assert_shape_eq {
     ($lhs:expr, $rhs:expr) => {
@@ -245,7 +246,8 @@ inplace_fn_impls! {
     RecipAssign, recip_assign;
     ToDegreesAssign, to_degrees_assign;
     ToRadiansAssign, to_radians_assign;
-    ConjAssign, conj_assign
+    ConjAssign, conj_assign;
+    ZeroOut, zero_out
 }
 
 // ---------------------------
@@ -491,47 +493,19 @@ macro_rules! conversion_op_impls {
     (
         $($trait:ident, $trait_fn:ident);*
     ) => {$(
-        impl<'a, Y, Z, T, S, A, D, L> $trait for &'a Tensor<Static, Y, Z, T, S, A, D, L>
+        impl<'a, X, Y, Z, T, S, A, D, L> $trait for &'a Tensor<X, Y, Z, T, S, A, D, L>
         where
             T: $trait + Copy + 'static,
             <T as $trait>::Output: Default,
             S: Shape,
-            A: StaticAlloc<<T as $trait>::Output, S>,
             L: Layout<S::Len>,
-            for<'b> &'b mut A::Alloc: StridedIteratorMut<Item=RefMutGat<[<T as $trait>::Output]>>,
+            Tensor<X, Y, Z, T, S, A, D, L>: AllocSameShape<<T as $trait>::Output>,
+            for<'b> &'b mut <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait>::Output>>::Alloc: StridedIteratorMut<Item=RefMutGat<[<T as $trait>::Output]>>,
             Self: StridedIterator<Item=&'a [T]>,
         {
-            type Output = A::Alloc;
+            type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait>::Output>>::Alloc;
             fn $trait_fn(self) -> Self::Output {
-                let mut out = A::fill(<<T as $trait>::Output>::default());
-                let chunk_size = self.opt_chunk_size();
-
-                {
-                    let mut it = out.strided_iter_mut(chunk_size).streaming_zip(self.strided_iter(chunk_size));
-                    while let Some((out_chunk, self_chunk)) = it.next() {
-                        for (x, y) in out_chunk.iter_mut().zip(self_chunk.iter()) {
-                            *x = y.$trait_fn();
-                        }
-                    }
-                }
-
-                out
-            }
-        }
-
-        impl<'a, Y, Z, T, S, A, D, L> $trait for &'a Tensor<Dynamic, Y, Z, T, S, A, D, L>
-        where
-            T: $trait + Copy + 'static,
-            <T as $trait>::Output: Default,
-            S: Shape,
-            A: DynamicAlloc<<T as $trait>::Output, S>,
-            L: Layout<S::Len>,
-            for<'b> &'b mut A::Alloc: StridedIteratorMut<Item=RefMutGat<[<T as $trait>::Output]>>,
-            Self: StridedIterator<Item=&'a [T]>,
-        {
-            type Output = A::Alloc;
-            fn $trait_fn(self) -> Self::Output {
-                let mut out = A::fill(self.shape(), <<T as $trait>::Output>::default());
+                let mut out = self.fill_same_shape(<<T as $trait>::Output>::default());
                 let chunk_size = self.opt_chunk_size();
 
                 {
@@ -553,5 +527,162 @@ conversion_op_impls! {
     Re, re;
     Im, im;
     Norm, norm;
-    Arg, arg
+    NormSqr, norm_sqr;
+    Arg, arg;
+    J, j;
+    EPowJ, e_pow_j
+}
+
+macro_rules! binary_conversion_op_impls {
+    (
+        $($trait:ident, $trait_fn:ident);*
+    ) => {$(
+        macro_rules! op_unchecked {
+            ($self:ident $rhs:ident) => {
+                let mut out = $self.fill_same_shape(<<T as $trait>::Output>::default());
+                let chunk_size = $self.opt_chunk_size().min($rhs.opt_chunk_size());
+
+                {
+                    let mut it = out.strided_iter_mut(chunk_size).streaming_zip($self.strided_iter(chunk_size)).streaming_zip($rhs.strided_iter(chunk_size));
+                    while let Some(((out_chunk, self_chunk), rhs_chunk)) = it.next() {
+                        for ((x, y), z) in out_chunk.iter_mut().zip(self_chunk.iter()).zip(rhs_chunk.iter()) {
+                            *x = (*y).$trait_fn(*z);
+                        }
+                    }
+                }
+
+                out
+            };
+        }
+
+        impl<'a, Y, Z, T, S, A, D, L, Yrhs, Zrhs, Arhs, Drhs, Lrhs> $trait<&Tensor<Static, Yrhs, Zrhs, T, S, Arhs, Drhs, Lrhs>> for &'a Tensor<Static, Y, Z, T, S, A, D, L>
+        where
+            Self: StridedIterator<Item=&'a [T]>,
+            for<'b> &'b Tensor<Static, Yrhs, Zrhs, T, S, Arhs, Drhs, Lrhs>: StridedIterator<Item=&'b [T]>,
+            Tensor<Static, Y, Z, T, S, A, D, L>: AllocSameShape<<T as $trait>::Output>,
+            for<'b> &'b mut <Tensor<Static, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait>::Output>>::Alloc: StridedIteratorMut<Item=RefMutGat<[<T as $trait>::Output]>>,
+            T: $trait + Copy + 'static,
+            <T as $trait>::Output: Default,
+            S: Shape,
+            L: Layout<S::Len>,
+            Lrhs: Layout<S::Len>,
+        {
+            type Output = <Tensor<Static, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait>::Output>>::Alloc;
+            fn $trait_fn(self, rhs: &Tensor<Static, Yrhs, Zrhs, T, S, Arhs, Drhs, Lrhs>) -> Self::Output {
+                op_unchecked! { self rhs }
+            }
+        }
+
+        impl<'a, Y, Z, T, S, A, D, L, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs> $trait<&Tensor<Dynamic, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>> for &'a Tensor<Dynamic, Y, Z, T, S, A, D, L>
+        where
+            Self: StridedIterator<Item=&'a [T]>,
+            for<'b> &'b Tensor<Dynamic, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>: StridedIterator<Item=&'b [T]>,
+            Tensor<Dynamic, Y, Z, T, S, A, D, L>: AllocSameShape<<T as $trait>::Output>,
+            for<'b> &'b mut <Tensor<Dynamic, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait>::Output>>::Alloc: StridedIteratorMut<Item=RefMutGat<[<T as $trait>::Output]>>,
+            T: $trait + Copy + 'static,
+            <T as $trait>::Output: Default,
+            S: Shape + Same<Srhs>,
+            <S as Same<Srhs>>::Output: TRUE,
+            Srhs: Shape,
+            L: Layout<S::Len>,
+            Lrhs: Layout<Srhs::Len>,
+        {
+            type Output = <Tensor<Dynamic, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait>::Output>>::Alloc;
+            fn $trait_fn(self, rhs: &Tensor<Dynamic, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>) -> Self::Output {
+                assert_shape_eq!(self.shape().deref(), rhs.shape().deref());
+                op_unchecked! { self rhs }
+            }
+        }
+    )*};
+}
+
+binary_conversion_op_impls! {
+    AddJ, add_j;
+    MulEPowJ, mul_e_pow_j
+}
+
+macro_rules! one_param_conversion_op_impls {
+    (
+        $($trait:ident$(<$param_type:ty>)?, $trait_fn:ident);*
+    ) => {$(
+        macro_rules! isset_or_default {
+            ($var:ty) => { $var };
+            () => { T };
+        }
+
+        impl<'a, X, Y, Z, T, S, A, D, L> $trait<isset_or_default!($($param_type)?)> for &'a Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            Self: StridedIterator<Item=&'a [T]>,
+            Tensor<X, Y, Z, T, S, A, D, L>: AllocSameShape<<T as $trait<isset_or_default!($($param_type)?)>>::Output>,
+            for<'b> &'b mut <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait<isset_or_default!($($param_type)?)>>::Output>>::Alloc: StridedIteratorMut<Item=RefMutGat<[<T as $trait>::Output]>>,
+            T: $trait<isset_or_default!($($param_type)?)> + Copy + 'static,
+            <T as $trait<isset_or_default!($($param_type)?)>>::Output: Default,
+            S: Shape,
+            L: Layout<S::Len>,
+        {
+            type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<<T as $trait<isset_or_default!($($param_type)?)>>::Output>>::Alloc;
+            fn $trait_fn(self, rhs: isset_or_default!($($param_type)?)) -> Self::Output {
+                let mut out = self.fill_same_shape(<<T as $trait>::Output>::default());
+                let chunk_size = self.opt_chunk_size();
+
+                {
+                    let mut it = out.strided_iter_mut(chunk_size).streaming_zip(self.strided_iter(chunk_size));
+                    while let Some((out_chunk, self_chunk)) = it.next() {
+                        for (x, y) in out_chunk.iter_mut().zip(self_chunk.iter()) {
+                            *x = (*y).$trait_fn(rhs);
+                        }
+                    }
+                }
+
+                out
+            }
+        }
+    )*};
+}
+
+one_param_conversion_op_impls! {
+    AddJ, add_j;
+    MulEPowJ, mul_e_pow_j
+}
+
+// -------
+// Casts
+// -------
+
+/// Elementwise cast of a tensor.
+/// 
+/// Cast all its elements into `U`.
+pub trait TensorCast<U> {
+    /// Output type.
+    type Output;
+    /// Cast all elements into `U`.
+    fn as_(self) -> Self::Output;
+}
+
+impl<'a, X, Y, Z, T, S, A, D, L, U> TensorCast<U> for &'a Tensor<X, Y, Z, T, S, A, D, L>
+where
+    T: Cast<U> + Copy,
+    U: Default + 'static,
+    S: Shape,
+    L: Layout<S::Len>,
+    Tensor<X, Y, Z, T, S, A, D, L>: AllocSameShape<U>,
+    for<'b> &'b mut <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<U>>::Alloc: StridedIteratorMut<Item=RefMutGat<[U]>>,
+    Self: StridedIterator<Item=&'a [T]>,
+{
+    type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<U>>::Alloc;
+    fn as_(self) -> Self::Output {
+        let mut out = self.fill_same_shape(U::default());
+        let chunk_size = self.opt_chunk_size();
+
+        {
+            let mut it = out.strided_iter_mut(chunk_size).streaming_zip(self.strided_iter(chunk_size));
+            while let Some((out_chunk, self_chunk)) = it.next() {
+                for (x, y) in out_chunk.iter_mut().zip(self_chunk.iter()) {
+                    *x = y.as_();
+                }
+            }
+        }
+
+        out
+    }
 }

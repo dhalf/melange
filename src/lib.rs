@@ -148,6 +148,15 @@ mod tests {
             Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
         assert_eq!(a.grad().unwrap(), d);
     }
+
+    #[test]
+    fn scalar_backprop() {
+        let a = Variable::new(1.0_f64, true);
+        let b = Variable::clone(&a).exp();
+        b.backward(1.0);
+
+        assert_eq!(a.grad().unwrap(), std::f64::consts::E);
+    }
 }
 
 pub mod backprop;
