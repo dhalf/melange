@@ -150,13 +150,36 @@ mod tests {
     }
 
     #[test]
-    fn scalar_backprop() {
-        let a = Variable::new(1.0_f64, true);
-        let b = Variable::clone(&a).exp();
-        b.backward(1.0);
+    fn backprop_broadcast() {
+        use crate::backprop::view::VariableBroadcast;
+        let a: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let b: StaticTensor<f64, Shape2D<U1, U2>> =
+            Tensor::try_from(vec![1.0, 1.0]).unwrap();
 
-        assert_eq!(a.grad().unwrap(), std::f64::consts::E);
+        let g: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+
+        let a = Variable::new(a, true);
+        let b = Variable::new(b, true);
+
+        let r = VariableBroadcast::<Shape2D<U1, U2>, Shape2D<U2, U2>>::broadcast(&b);
+        let c = a + r;
+        c.backward(g);
+
+        let d: StaticTensor<f64, Shape2D<U1, U2>> =
+            Tensor::try_from(vec![2.0, 2.0]).unwrap();
+        assert_eq!(b.grad().unwrap(), d);
     }
+
+    // #[test]
+    // fn scalar_backprop() {
+    //     let a = Variable::new(1.0_f64, true);
+    //     let b = Variable::clone(&a).exp();
+    //     b.backward(1.0);
+
+    //     assert_eq!(a.grad().unwrap(), std::f64::consts::E);
+    // }
 }
 
 pub mod backprop;

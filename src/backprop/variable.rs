@@ -22,14 +22,14 @@ pub trait New<V> {
 /// and backpropagation closure as a sigle entity.
 ///
 /// Fields are public in the parent module (`backprop`).
-pub struct InternalVariable<V, G, B> {
+pub struct InternalVariable<'a, V, G, B> {
     pub(super) value: V,
     pub(super) grad: RefCell<Option<G>>,
     pub(super) backward_op_name: &'static str,
-    pub(super) backward_closure: Box<dyn Fn(B) -> ()>,
+    pub(super) backward_closure: Box<dyn Fn(B) -> () + 'a>,
 }
 
-impl<V, G, B> fmt::Debug for InternalVariable<V, G, B>
+impl<'a, V, G, B> fmt::Debug for InternalVariable<'a, V, G, B>
 where
     V: fmt::Debug,
     G: fmt::Debug,
@@ -46,12 +46,12 @@ where
 /// Core type of `backprop` module that represents a node in the computation
 /// graph. It contains a combination of `Rc` and `RefCell` to allow
 /// mutable reference counting of the [`InternalVariables`](InternalVariables)s.
-pub struct Variable<T, V, G, B>(
-    pub(super) Rc<InternalVariable<V, G, B>>,
+pub struct Variable<'a, T, V, G, B>(
+    pub(super) Rc<InternalVariable<'a, V, G, B>>,
     pub(super) PhantomData<T>,
 );
 
-impl<T, V, G, B> fmt::Debug for Variable<T, V, G, B>
+impl<'a, T, V, G, B> fmt::Debug for Variable<'a, T, V, G, B>
 where
     V: fmt::Debug,
     G: fmt::Debug,
@@ -61,14 +61,14 @@ where
     }
 }
 
-impl<T, V, G, B> Deref for Variable<T, V, G, B> {
-    type Target = Rc<InternalVariable<V, G, B>>;
+impl<'a, T, V, G, B> Deref for Variable<'a, T, V, G, B> {
+    type Target = Rc<InternalVariable<'a, V, G, B>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T, V, G, B> Variable<T, V, G, B>
+impl<'a, T, V, G, B> Variable<'a, T, V, G, B>
 where
     G: Clone,
 {
@@ -78,9 +78,9 @@ where
     }
 }
 
-impl<T, V, G, B> Variable<T, V, G, B>
+impl<'a, T, V, G, B> Variable<'a, T, V, G, B>
 where
-    G: for<'a> AddAssign<&'a B>,
+    G: for<'b> AddAssign<&'b B>,
 {
     /// Add given gradient to the retained gradient if needed and
     /// backpropagate using the closure.
@@ -95,7 +95,7 @@ where
     }
 }
 
-impl<T, V, B> New<V> for Variable<T, V, V::Alloc, B>
+impl<'a, T, V, B> New<V> for Variable<'a, T, V, V::Alloc, B>
 where
     T: Differentiable + Zero,
     V: AllocLike<Scalar = T>,
@@ -114,7 +114,7 @@ where
     }
 }
 
-impl<T, V, G, B> Clone for Variable<T, V, G, B> {
+impl<'a, T, V, G, B> Clone for Variable<'a, T, V, G, B> {
     fn clone(&self) -> Self {
         Variable(Rc::clone(&self.0), PhantomData)
     }

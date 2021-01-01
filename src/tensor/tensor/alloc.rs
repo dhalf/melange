@@ -136,6 +136,14 @@ where
     }
 }
 
+pub trait Allocator {
+    type Allocator;
+}
+
+impl<X, Y, Z, T, S, A, D, L> Allocator for Tensor<X, Y, Z, T, S, A, D, L> {
+    type Allocator = A;
+}
+
 pub trait AllocLike {
     type Alloc;
     type Scalar;

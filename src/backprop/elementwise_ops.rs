@@ -30,10 +30,11 @@ macro_rules! binary_op_impl {
         $(where $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
         ($self:ident, $rhs:ident) => $backward_closure:expr
     ) => {
-        impl<T, V, G, B, Vrhs, Grhs> $trait_name<Variable<T, Vrhs, Grhs, B::Alloc>> for Variable<T, V, G, B>
+        impl<'var, T, V, G, B, Vrhs, Grhs> $trait_name<Variable<'var, T, Vrhs, Grhs, B::Alloc>> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
             for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = V::Alloc>,
+            
             // Output variable gradient allocation.
             V: AllocLike<Scalar = T>,
             T: Zero,
@@ -45,21 +46,21 @@ macro_rules! binary_op_impl {
             G: for<'a> AddAssign<&'a B>,
             Grhs: for<'a> AddAssign<&'a B::Alloc>,
 
-            // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
-            Vrhs: 'static,
-            Grhs: 'static,
-            B::Alloc: 'static,
+            // Lifetime bounds required by output backward closure.
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
+            Vrhs: 'var,
+            Grhs: 'var,
+            B::Alloc: 'var,
 
             // Additionnal bounds needed by either forward or
             // backward passes
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
-            type Output = Variable<T, V::Alloc, V::Alloc, B>;
-            fn $fn_name($self, $rhs: Variable<T, Vrhs, Grhs, B::Alloc>) -> Self::Output {
+            type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
+            fn $fn_name($self, $rhs: Variable<'var, T, Vrhs, Grhs, B::Alloc>) -> Self::Output {
                 let value = $self.value.$fn_name(&$rhs.value);
                 let grad = {
                     let self_grad = $self.grad.borrow();
@@ -254,7 +255,7 @@ macro_rules! ternary_op_impl {
         $(where $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
         ($self:ident, $rhs0:ident, $rhs1:ident) => $backward_closure:expr
     ) => {
-        impl<T, V, G, B, Vrhs0, Grhs0, Vrhs1, Grhs1> $trait_name<Variable<T, Vrhs0, Grhs0, B::Alloc>, Variable<T, Vrhs1, Grhs1, B::Alloc>> for Variable<T, V, G, B>
+        impl<'var, T, V, G, B, Vrhs0, Grhs0, Vrhs1, Grhs1> $trait_name<Variable<'var, T, Vrhs0, Grhs0, B::Alloc>, Variable<'var, T, Vrhs1, Grhs1, B::Alloc>> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
             for<'a, 'b, 'c> &'a V: $trait_name<&'b Vrhs0, &'c Vrhs1, Output = V::Alloc>,
@@ -270,23 +271,23 @@ macro_rules! ternary_op_impl {
             Grhs0: for<'a> AddAssign<&'a B::Alloc>,
             Grhs1: for<'a> AddAssign<&'a B::Alloc>,
 
-            // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
-            Vrhs0: 'static,
-            Grhs0: 'static,
-            Vrhs1: 'static,
-            Grhs1: 'static,
-            B::Alloc: 'static,
+            // Lifetime bounds required by output backward closure.
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
+            Vrhs0: 'var,
+            Grhs0: 'var,
+            Vrhs1: 'var,
+            Grhs1: 'var,
+            B::Alloc: 'var,
 
             // Additionnal bounds needed by either forward or
             // backward passes
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
-            type Output = Variable<T, V::Alloc, V::Alloc, B>;
-            fn $fn_name($self, $rhs0: Variable<T, Vrhs0, Grhs0, B::Alloc>, $rhs1: Variable<T, Vrhs1, Grhs1, B::Alloc>) -> Self::Output {
+            type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
+            fn $fn_name($self, $rhs0: Variable<'var, T, Vrhs0, Grhs0, B::Alloc>, $rhs1: Variable<'var, T, Vrhs1, Grhs1, B::Alloc>) -> Self::Output {
                 let value = $self.value.$fn_name(&$rhs0.value, &$rhs1.value);
                 let grad = {
                     let self_grad = $self.grad.borrow();
@@ -347,7 +348,7 @@ macro_rules! one_param_op_impl {
             };
         }
 
-        impl<T, V, G, B $(,$param)?> $trait_name<isset_or_default!($($param)?)> for Variable<T, V, G, B>
+        impl<'var, T, V, G, B $(,$param)?> $trait_name<isset_or_default!($($param)?)> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
             for<'a> &'a V: $trait_name<isset_or_default!($($param)?), Output = V::Alloc>,
@@ -360,18 +361,18 @@ macro_rules! one_param_op_impl {
             T: Copy,
             $($param: Copy,)?
 
-            // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
-            $($param: 'static,)?
+            // Lifetime bounds required by output backward closure.
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
+            $($param: 'var,)?
 
             // Additionnal bounds needed by either forward or
             // backward passes
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
-            type Output = Variable<T, V::Alloc, V::Alloc, B>;
+            type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
             fn $fn_name($self, $rhs: isset_or_default!($($param)?)) -> Self::Output {
                 let value = $self.value.$fn_name($rhs);
                 let grad = {
@@ -545,7 +546,7 @@ macro_rules! reversed_one_param_op_impl {
     ) => {
         macro_rules! inner_impl {
             ($t:ty) => {
-                impl<V, G, B> $trait_name<Variable<$t, V, G, B>> for $t
+                impl<'var, V, G, B> $trait_name<Variable<'var, $t, V, G, B>> for $t
                 where
                     // Forward operation.
                     for<'a> &'a V: $trait_name<$t, Output = V::Alloc>,
@@ -556,16 +557,16 @@ macro_rules! reversed_one_param_op_impl {
                     B: AllocLike<Scalar = $t>,
                     // Backward calls on inputs in output backward closure.
                     G: for<'a> AddAssign<&'a B>,
-                    // 'static bounds required by output backward closure.
-                    V: 'static,
-                    G: 'static,
-                    B: 'static,
+                    // Lifetime bounds required by output backward closure.
+                    V: 'var,
+                    G: 'var,
+                    B: 'var,
                     // Additionnal bounds needed by either forward or
                     // backward passes
                     $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
                 {
-                    type Output = Variable<$t, V::Alloc, V::Alloc, B>;
-                    fn $fn_name($self, $rhs: Variable<$t, V, G, B>) -> Self::Output {
+                    type Output = Variable<'var, $t, V::Alloc, V::Alloc, B>;
+                    fn $fn_name($self, $rhs: Variable<'var, $t, V, G, B>) -> Self::Output {
                         let value = $forward;
                         let grad = {
                             let rhs_grad = $rhs.grad.borrow();
@@ -759,7 +760,7 @@ macro_rules! two_param_op_impl {
             };
         }
 
-        impl<T, V, G, B $(,$param0, $param1)?> $trait_name<isset_or_default!($($param0)?), isset_or_default!($($param1)?)> for Variable<T, V, G, B>
+        impl<'var, T, V, G, B $(,$param0, $param1)?> $trait_name<isset_or_default!($($param0)?), isset_or_default!($($param1)?)> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
             for<'a> &'a V: $trait_name<isset_or_default!($($param0)?), isset_or_default!($($param1)?), Output = V::Alloc>,
@@ -773,19 +774,19 @@ macro_rules! two_param_op_impl {
             $($param0: Copy,)?
             $($param1: Copy,)?
 
-            // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
-            $($param0: 'static,)?
-            $($param1: 'static,)?
+            // Lifetime bounds required by output backward closure.
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
+            $($param0: 'var,)?
+            $($param1: 'var,)?
 
             // Additionnal bounds needed by either forward or
             // backward passes
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
-            type Output = Variable<T, V::Alloc, V::Alloc, B>;
+            type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
             fn $fn_name($self, $rhs0: isset_or_default!($($param0)?), $rhs1: isset_or_default!($($param1)?)) -> Self::Output {
                 let value = $self.value.$fn_name($rhs0, $rhs1);
                 let grad = {
@@ -827,7 +828,7 @@ macro_rules! fn_impl {
         $(where $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
         ($self:ident) => $backward_closure:expr
     ) => {
-        impl<T, V, G, B> $trait_name for Variable<T, V, G, B>
+        impl<'var, T, V, G, B> $trait_name for Variable<'var, T, V, G, B>
         where
             // Forward operation.
             for<'a> &'a V: $trait_name<Output = V::Alloc>,
@@ -839,16 +840,16 @@ macro_rules! fn_impl {
             G: for<'a> AddAssign<&'a B>,
 
             // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
 
             // Additionnal bounds needed by either forward or
             // backward passes
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
-            type Output = Variable<T, V::Alloc, V::Alloc, B>;
+            type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
             fn $fn_name($self) -> Self::Output {
                 let value = $self.value.$fn_name();
                 let grad = {
@@ -1327,7 +1328,7 @@ macro_rules! cross_domain_fn_impl {
         ($self:ident) => $backward_closure:expr
     ) => {
         /// Wrapper trait that allows an adaptive `B` parameter in the output `Variable`.
-        pub trait $wrapper_trait_name {
+        pub trait $wrapper_trait_name<'var> {
             /// Scalar type `T` of the output `Variable`.
             type OutputScalar;
             /// `V` parameter of the output `Variable`.
@@ -1337,14 +1338,14 @@ macro_rules! cross_domain_fn_impl {
             /// `B` parameter of the input `Variable`.
             type Back;
             /// Trait function generic over `Bnext`, the adaptive `B` parameter of the output `Variable`.
-            fn $fn_name<Bnext>(self) -> Variable<Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
+            fn $fn_name<Bnext>(self) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
             where
                 Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?;
         }
         
-        impl<T, V, G, B> $wrapper_trait_name for Variable<$t, V, G, B>
+        impl<'var, T, V, G, B> $wrapper_trait_name<'var> for Variable<'var, $t, V, G, B>
         where
             // Forward operation.
             for<'a> &'a V: $trait_name<Output = V::Alloc>,
@@ -1356,11 +1357,11 @@ macro_rules! cross_domain_fn_impl {
             // Backward call on input in output backward closure.
             G: for<'a> AddAssign<&'a B>,
 
-            // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
+            // Lifetime bounds required by output backward closure.
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
 
             // Additionnal bounds needed by either forward or
             // backward passes
@@ -1370,7 +1371,7 @@ macro_rules! cross_domain_fn_impl {
             type OutputValue = V::Alloc;
             type OutputGrad = V::Alloc;
             type Back = B;
-            fn $fn_name<Bnext>($self) -> Variable<Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
+            fn $fn_name<Bnext>($self) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
             where
                 Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
@@ -1504,7 +1505,7 @@ macro_rules! cross_domain_binary_op_impl {
         ($self:ident, $rhs:ident) => $backward_closure:expr
     ) => {
         /// Wrapper trait that allows an adaptive `B` parameter in the output `Variable`.
-        pub trait $wrapper_trait_name<Rhs = Self> {
+        pub trait $wrapper_trait_name<'var, Rhs = Self> {
             /// Scalar type `T` of the output `Variable`.
             type OutputScalar;
             /// `V` parameter of the output `Variable`.
@@ -1520,14 +1521,14 @@ macro_rules! cross_domain_binary_op_impl {
             /// is that the trait has no knowledge of `Vrhs` that is defined in the impl.
             type VrhsAlloc;
             /// Trait function generic over `Bnext`, the adaptive `B` parameter of the output `Variable`.
-            fn $fn_name<Bnext>(self, rhs: Rhs) -> Variable<Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
+            fn $fn_name<Bnext>(self, rhs: Rhs) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
             where
                 Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?;
         }
         
-        impl<T, V, G, B, Vrhs, Grhs> $wrapper_trait_name<Variable<$t, Vrhs, Grhs, B>> for Variable<$t, V, G, B>
+        impl<'var, T, V, G, B, Vrhs, Grhs> $wrapper_trait_name<'var, Variable<'var, $t, Vrhs, Grhs, B>> for Variable<'var, $t, V, G, B>
         where
             // Forward operation.
             for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = V::Alloc>,
@@ -1541,13 +1542,13 @@ macro_rules! cross_domain_binary_op_impl {
             G: for<'a> AddAssign<&'a B>,
             Grhs: for<'a> AddAssign<&'a B>,
 
-            // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
-            Vrhs: 'static,
-            Grhs: 'static,
+            // Lifetime bounds required by output backward closure.
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
+            Vrhs: 'var,
+            Grhs: 'var,
 
             // Additionnal bounds needed by either forward or
             // backward passes
@@ -1558,7 +1559,7 @@ macro_rules! cross_domain_binary_op_impl {
             type OutputGrad = V::Alloc;
             type Back = B;
             type VrhsAlloc = Vrhs::Alloc;
-            fn $fn_name<Bnext>($self, $rhs: Variable<$t, Vrhs, Grhs, B>) -> Variable<Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
+            fn $fn_name<Bnext>($self, $rhs: Variable<'var, $t, Vrhs, Grhs, B>) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
             where
                 Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
@@ -1635,7 +1636,7 @@ macro_rules! cross_domain_one_param_op_impl {
         ($self:ident, $rhs:ident) => $backward_closure:expr
     ) => {
         /// Wrapper trait that allows an adaptive `B` parameter in the output `Variable`.
-        pub trait $wrapper_trait_name<Rhs = Self> {
+        pub trait $wrapper_trait_name<'var, Rhs = Self> {
             /// Scalar type `T` of the output `Variable`.
             type OutputScalar;
             /// `V` parameter of the output `Variable`.
@@ -1645,14 +1646,14 @@ macro_rules! cross_domain_one_param_op_impl {
             /// `B` parameter of the input `Variable`.
             type Back;
             /// Trait function generic over `Bnext`, the adaptive `B` parameter of the output `Variable`.
-            fn $fn_name<Bnext>(self, rhs: Rhs) -> Variable<Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
+            fn $fn_name<Bnext>(self, rhs: Rhs) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
             where
                 Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?;
         }
         
-        impl<T, V, G, B> $wrapper_trait_name<$t> for Variable<$t, V, G, B>
+        impl<'var, T, V, G, B> $wrapper_trait_name<'var, $t> for Variable<'var, $t, V, G, B>
         where
             // Forward operation.
             for<'a> &'a V: $trait_name<$t, Output = V::Alloc>,
@@ -1665,10 +1666,10 @@ macro_rules! cross_domain_one_param_op_impl {
             G: for<'a> AddAssign<&'a B>,
 
             // 'static bounds required by output backward closure.
-            T: 'static,
-            V: 'static,
-            G: 'static,
-            B: 'static,
+            T: 'var,
+            V: 'var,
+            G: 'var,
+            B: 'var,
 
             // Additionnal bounds needed by either forward or
             // backward passes
@@ -1678,7 +1679,7 @@ macro_rules! cross_domain_one_param_op_impl {
             type OutputValue = V::Alloc;
             type OutputGrad = V::Alloc;
             type Back = B;
-            fn $fn_name<Bnext>($self, $rhs: $t) -> Variable<Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
+            fn $fn_name<Bnext>($self, $rhs: $t) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
             where
                 Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,

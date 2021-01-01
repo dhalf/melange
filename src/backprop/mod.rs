@@ -85,6 +85,7 @@ pub mod elementwise_ops;
 pub mod prelude;
 #[doc(hidden)]
 pub mod variable;
+pub mod view;
 
 #[doc(inline)]
 pub use variable::{New, Variable};
