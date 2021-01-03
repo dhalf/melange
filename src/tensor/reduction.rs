@@ -17,14 +17,16 @@
 use super::alloc::{DynamicAlloc, StaticAlloc};
 use super::index::Index;
 use super::layout::{DynamicLayout, Layout};
-use super::shape::{BroadcastShape, PartialCopy, Same, Shape, StaticShape, TRUE};
+use super::shape::{BroadcastShape, PartialCopy, Same, Shape, StaticShape, TRUE, Shape1D};
 use super::strided_iterator::StridedIterator;
 use super::view::{BroadcastDynamicMut, BroadcastMut};
-use super::{Dynamic, Static, Strided, Tensor};
+use super::{Dynamic, Static, Strided, Tensor, AsRawSlice};
 use crate::ops::{MaxAssign, MinAssign};
 use crate::scalar_traits::*;
 use std::convert::TryFrom;
-use std::ops::{AddAssign, MulAssign};
+use std::ops::{AddAssign, MulAssign, Add};
+use typenum::U1;
+use num_complex::{Complex64, Complex32};
 
 type BroadcastMutView<'a, Z, T, Sout: Shape, A> =
     Tensor<Static, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;
@@ -176,3 +178,42 @@ reduction_impls! {
     MaxReduce, max_reduce, MaxAssign, max_assign, NegInfinity, T::NEG_INFINITY;
     MinReduce, min_reduce, MinAssign, min_assign, Infinity, T::INFINITY
 }
+
+// Note: the orphan rules prevents a generic impl here
+//
+// These impls are needed to be able to backpropagate
+// through a scalar in a tensor/scalar operation.
+// This form of add_assign actually consists of a
+// summation of all the elements of the tensor that
+// is added to the scalar by delegating to its impl
+// of AddAssign.
+macro_rules! implicit_summation {
+    ($($t:ty)*) => {$(
+        impl<Y, Z, S, A, D, L> AddAssign<&Tensor<Static, Y, Z, $t, S, A, D, L>> for $t
+        where
+            $t: AddAssign,
+            for<'a> &'a Tensor<Static, Y, Z, $t, S, A, D, L>: Sum<Shape1D<U1>, Output = A::Alloc>,
+            A: StaticAlloc<$t, Shape1D<U1>>,
+            A::Alloc: AsRawSlice<$t>,
+        {
+            fn add_assign(&mut self, rhs: &Tensor<Static, Y, Z, $t, S, A, D, L>) {
+                *self += rhs.sum().as_raw_slice()[0]
+            }
+        }
+
+        // impl<Y, Z, S, A, D, L> AddAssign<&Tensor<Dynamic, Y, Z, $t, S, A, D, L>> for $t
+        // where
+        //     $t: AddAssign,
+        //     S: Shape,
+        //     for<'a> &'a Tensor<Static, Y, Z, $t, S, A, D, L>: Sum<Shape1D<U1>, Output = A::Alloc>,
+        //     A: DynamicAlloc<$t, Shape1D<U1>>,
+        //     A::Alloc: AsRawSlice<$t>,
+        // {
+        //     fn add_assign(&mut self, rhs: &Tensor<Dynamic, Y, Z, $t, S, A, D, L>) {
+        //         *self += rhs.sum().as_raw_slice()[0]
+        //     }
+        // }
+    )*};
+}
+
+implicit_summation! { f64 f32 Complex64 Complex32 }

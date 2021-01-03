@@ -163,6 +163,18 @@ macro_rules! one_param_inplace_op_impls {
                 }
             }
         }
+
+        impl<X, Y, Z, T, S, A, D, L> $trait<&isset_or_default!($($param_type)?)> for Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[T]>>,
+            T: $trait<isset_or_default!($($param_type)?)> + Copy + 'static,
+            S: Shape,
+            L: Layout<S::Len>,
+        {
+            fn $trait_fn(&mut self, rhs: &isset_or_default!($($param_type)?)) {
+                self.$trait_fn(*rhs);
+            }
+        }
     )*};
 }
 

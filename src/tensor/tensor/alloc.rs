@@ -136,14 +136,6 @@ where
     }
 }
 
-pub trait Allocator {
-    type Allocator;
-}
-
-impl<X, Y, Z, T, S, A, D, L> Allocator for Tensor<X, Y, Z, T, S, A, D, L> {
-    type Allocator = A;
-}
-
 pub trait AllocLike {
     type Alloc;
     type Scalar;
@@ -231,5 +223,15 @@ where
     type Alloc = <A as DynamicAlloc<U, S>>::Alloc;
     fn fill_same_shape(&self, value: U) -> Self::Alloc {
         <A as DynamicAlloc<U, S>>::fill(self.shape(), value)
+    }
+}
+
+impl<T, U> AllocSameShape<U> for T
+where
+    T: Into<U> + Copy,
+{
+    type Alloc = U;
+    fn fill_same_shape(&self, value: U) -> Self::Alloc {
+        value.into()
     }
 }

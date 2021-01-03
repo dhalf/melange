@@ -9,63 +9,63 @@ use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ops::*;
 use std::rc::Rc;
-
-pub trait BroadcastView<Sout> {
-    type Output: for<'a> Gat<'a>;
-}
-
-use crate::gat::{Gat, RefGat};
-impl<'rhs, X, Y, Z, T, S, A, D, L> Gat<'rhs> for Tensor<X, Y, Z, T, S, A, D, L>
-where
-    D: for<'a> Gat<'a>,
-{
-    type Output = Tensor<X, Y, Z, T, S, A, <D as Gat<'rhs>>::Output, L>;
-}
-
-use crate::tensor::layout::DynamicLayout;
-impl<Y, Z, T, S, A, D, L, Sout> BroadcastView<Sout> for Tensor<Static, Y, Z, T, S, A, D, L>
-where
-    T: 'static,
-    Sout: Shape,
-{
-    type Output = Tensor<Static, Strided, Z, T, Sout, A, RefGat<[T]>, DynamicLayout<Sout::Len>>;
-}
+use crate::tensor::index::Index;
 
 macro_rules! cross_domain_fn_impl {
     (
         $wrapper_trait_name:ident;
-        $trait_name:ident;
+        $alloc_trait_name:ident;
+        $trait_name:ident$(<$param_type:ty>)?;
         $fn_name:ident;
         $op_name:expr;
         $(where trait $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
         $(where fn $($generic_fn:ty $(| $($lgen_fn:lifetime),+)?: $($bound_fn:path)|*),*;)?
         ($self:ident) => $backward_closure:expr
     ) => {
+        macro_rules! fill {
+            ($param:ident: $var:ty) => {
+                A::fill($param, T::ZERO)
+            };
+            () => {
+                A::fill(T::ZERO)
+            };
+        }
+
+        macro_rules! op {
+            ($self_:ident, $fn_name_:ident, $param:ident: $var:ty) => {
+                $self_.value.$fn_name_($param.clone())
+            };
+            ($self_:ident, $fn_name_:ident,) => {
+                $self_.value.$fn_name_()
+            };
+        }
+        
         /// Wrapper trait that allows an adaptive `B` parameter in the output `Variable`.
-        pub trait $wrapper_trait_name<'var, S, Sout> {
+        pub trait $wrapper_trait_name<'var, Sout: Shape> {
             /// Scalar type `T` of the output `Variable`.
             type OutputScalar;
             /// `V` parameter of the output `Variable`.
-            type OutputValue: for<'a> Gat<'a>;
+            type OutputValue;
             /// `G` parameter of the output `Variable`.
             type OutputGrad;
             /// `B` parameter of the input `Variable`.
             type Back;
+            /// `S` parameter of the input `Variable`'s value `Tensor`.
+            type InputShape;
             /// Trait function generic over `Bnext`, the adaptive `B` parameter of the output `Variable`.
-            fn $fn_name<Bout>(&'var self) -> Variable<'var, Self::OutputScalar, <Self::OutputValue as Gat<'var>>::Output, Self::OutputGrad, Bout>
+            fn $fn_name<Bout>(&'var self$(, runtime_shape: $param_type)?) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bout>
             where
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?;
         }
         
-        impl<'var, T, S, V, G, B, Sout> $wrapper_trait_name<'var, S, Sout> for Variable<'var, T, V, G, B>
+        impl<'var, T, X, Y, Z, S, A, D, L, G, B, Sout> $wrapper_trait_name<'var, Sout> for Variable<'var, T, Tensor<X, Y, Z, T, S, A, D, L>, G, B>
         where
             // Forward operation.
-            V: $trait_name<'var, Sout, Output = <<V as BroadcastView<Sout>>::Output as Gat<'var>>::Output>,
-            V: BroadcastView<Sout>,
+            Tensor<X, Y, Z, T, S, A, D, L>: $trait_name<'var, Sout>,
+            Sout: Shape,
             
             // Output variable gradient allocation.
-            V: Allocator,
-            V::Allocator: StaticAlloc<T, Sout>,
+            A: $alloc_trait_name<T, Sout>,
             T: Zero,
 
             // Backward call on input in output backward closure.
@@ -73,7 +73,13 @@ macro_rules! cross_domain_fn_impl {
 
             // 'static bounds required by output backward closure.
             T: 'var,
-            V: 'var,
+            X: 'var,
+            Y: 'var,
+            Z: 'var,
+            S: 'var,
+            A: 'var,
+            D: 'var,
+            L: 'var,
             G: 'var,
             B: 'var,
 
@@ -82,18 +88,19 @@ macro_rules! cross_domain_fn_impl {
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
             type OutputScalar = T;
-            type OutputValue = <V as BroadcastView<Sout>>::Output;
-            type OutputGrad = <V::Allocator as StaticAlloc<T, Sout>>::Alloc;
+            type OutputValue = <Tensor<X, Y, Z, T, S, A, D, L> as $trait_name<'var, Sout>>::Output;
+            type OutputGrad = A::Alloc;
             type Back = B;
-            fn $fn_name<Bout>(&'var $self) -> Variable<'var, Self::OutputScalar, <Self::OutputValue as Gat<'var>>::Output, Self::OutputGrad, Bout>
+            type InputShape = S;
+            fn $fn_name<Bout>(&'var $self$(, runtime_shape: $param_type)?) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bout>
             where
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?
             {
-                let value = $self.value.$fn_name();
+                let value = op!($self, $fn_name, $(runtime_shape: $param_type)?);
                 let grad = {
                     let self_grad = $self.grad.borrow();
                     if let Some(_) = *self_grad {
-                        Some(<V::Allocator as StaticAlloc<T, Sout>>::fill(T::ZERO))
+                        Some(fill!($(runtime_shape: $param_type)?))
                     } else {
                         None
                     }
@@ -111,10 +118,20 @@ macro_rules! cross_domain_fn_impl {
 }
 
 cross_domain_fn_impl! {
-    VariableBroadcast;
+    VariableBroadcast; StaticAlloc;
     Broadcast; broadcast; "broadcast_back";
     where fn
-        &'b Bout | 'b: Sum<S, Output = Self::Back>;
+        &'b Bout | 'b: Sum<Self::InputShape, Output = Self::Back>;
+    (self) => move |grad| {
+        self.backward(grad.sum())
+    }
+}
+
+cross_domain_fn_impl! {
+    VariableBroadcastDynamic; DynamicAlloc;
+    BroadcastDynamic<Index<Sout::Len>>; broadcast_dynamic; "broadcast_dynamic_back";
+    where fn
+        &'b Bout | 'b: Sum<Self::InputShape, Output = Self::Back>;
     (self) => move |grad| {
         self.backward(grad.sum())
     }

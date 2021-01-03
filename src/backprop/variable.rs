@@ -51,6 +51,9 @@ pub struct Variable<'a, T, V, G, B>(
     pub(super) PhantomData<T>,
 );
 
+/// Type alias for `Variable`s that wrap scalar values.
+pub type ScalarVariable<'a, T> = Variable<'a, T, T, T, T>;
+
 impl<'a, T, V, G, B> fmt::Debug for Variable<'a, T, V, G, B>
 where
     V: fmt::Debug,
