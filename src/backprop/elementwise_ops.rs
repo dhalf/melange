@@ -2,11 +2,12 @@
 //! by the traits of the [`ops`](crate::ops)
 //! module for `Variables`.
 
-use super::variable::{InternalVariable, Variable};
+use super::variable::{BackwardCompatible, InternalVariable, Variable};
 use crate::ops::*;
 use crate::scalar_traits::*;
 use crate::tensor::prelude::*;
-use num_complex::{Complex, Complex32, Complex64};
+use crate::tensor::tensor_traits::BinaryOp;
+use num_complex::Complex;
 use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::ops::*;
@@ -22,7 +23,7 @@ use std::rc::Rc;
 // - `+` is not in the follow set of path syntax nodes used
 //   to parse traits in the bounds. We use `|` instead of `+`.
 //   `T: Debug + Copy,` becomes `T: Debug | Copy,`
-macro_rules! binary_op_impl {
+macro_rules! two_diff_op_impl {
     (
         $trait_name:ident;
         $fn_name:ident;
@@ -33,8 +34,9 @@ macro_rules! binary_op_impl {
         impl<'var, T, V, G, B, Vrhs, Grhs> $trait_name<Variable<'var, T, Vrhs, Grhs, B::Alloc>> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
-            for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = V::Alloc>,
-            
+            for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = <V as BinaryOp<Vrhs>>::Output>,
+            V: BinaryOp<Vrhs>,
+
             // Output variable gradient allocation.
             V: AllocLike<Scalar = T>,
             T: Zero,
@@ -43,8 +45,8 @@ macro_rules! binary_op_impl {
             B: AllocLike<Scalar = T>,
 
             // Backward calls on inputs in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
-            Grhs: for<'a> AddAssign<&'a B::Alloc>,
+            G: BackwardCompatible<B>,
+            Grhs: BackwardCompatible<B::Alloc>,
 
             // Lifetime bounds required by output backward closure.
             T: 'var,
@@ -59,24 +61,13 @@ macro_rules! binary_op_impl {
             // backward passes
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
-            type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
+            type Output = Variable<'var, T, <V as BinaryOp<Vrhs>>::Output, V::Alloc, B>;
             fn $fn_name($self, $rhs: Variable<'var, T, Vrhs, Grhs, B::Alloc>) -> Self::Output {
                 let value = $self.value.$fn_name(&$rhs.value);
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    let rhs_grad = $rhs.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else if let Some(_) = *rhs_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else {
-                        None
-                    }
-                };
 
                 Variable(Rc::new(InternalVariable {
                     value,
-                    grad: RefCell::new(grad),
+                    grad: RefCell::new(None),
                     backward_op_name: $op_name,
                     backward_closure: Box::new($backward_closure),
                 }), PhantomData)
@@ -85,7 +76,7 @@ macro_rules! binary_op_impl {
     };
 }
 
-binary_op_impl! {
+two_diff_op_impl! {
     Add; add; "add_back";
     (self, rhs) => move |grad| {
         rhs.backward(grad.to_contiguous());
@@ -93,161 +84,131 @@ binary_op_impl! {
     }
 }
 
-binary_op_impl! {
+two_diff_op_impl! {
     Sub; sub; "sub_back";
     where
-        &'a B | 'a: Mul<T, Output = B::Alloc>,
-        T: Neg<Output=T> | One;
+        &'a B | 'a: Neg<Output = B::Alloc>;
     (self, rhs) => move |grad| {
-        rhs.backward(grad.mul(-T::ONE));
+        rhs.backward(-&grad);
         self.backward(grad);
     }
 }
 
-binary_op_impl! {
+two_diff_op_impl! {
     Mul; mul; "mul_back";
     where
         Vrhs: AllocLike<Scalar = T>,
         &'a V | 'a: Conj<Output = V::Alloc>,
         &'a Vrhs | 'a: Conj<Output = Vrhs::Alloc>,
-        &'a B | 'a, 'b: Mul<&'b V::Alloc, Output = B::Alloc>,
-        B | 'a: MulAssign<&'a Vrhs::Alloc>;
-    (self, rhs) => move |mut grad| {
-        rhs.backward(grad.mul(&self.value.conj()));
-        grad.mul_assign(&rhs.value.conj());
-        self.backward(grad);
+        &'a B | 'a, 'b: Mul<V::Alloc, Output = B::Alloc>,
+        B: Mul<Vrhs::Alloc, Output = B>;
+    (self, rhs) => move |grad| {
+        rhs.backward(&grad * self.value.conj());
+        self.backward(grad * rhs.value.conj());
     }
 }
 
-binary_op_impl! {
+two_diff_op_impl! {
     Div; div; "div_back";
     where
-        T: Neg<Output = T> | One,
         Vrhs: AllocLike<Scalar = T>,
-        &'a Vrhs | 'a: Pow<i32, Output = Vrhs::Alloc>,
-        Vrhs::Alloc: RecipAssign,
-        Vrhs::Alloc | 'a: MulAssign<&'a V>,
-        Vrhs::Alloc: MulAssign<T>,
-        Vrhs::Alloc: ConjAssign,
-        &'a B | 'a, 'b: Mul<&'b Vrhs::Alloc, Output = B::Alloc>,
-        &'a Vrhs | 'a: Conj<Output = Vrhs::Alloc>,
-        B | 'a: DivAssign<&'a Vrhs::Alloc>;
-    (self, rhs) => move |mut grad| {
-        let mut rhs_part_grad = rhs.value.pow(2);
-        rhs_part_grad.recip_assign();
-        rhs_part_grad.mul_assign(&self.value);
-        rhs_part_grad.mul_assign(-T::ONE);
-        rhs_part_grad.conj_assign();
-        rhs.backward(grad.mul(&rhs_part_grad));
-        
-        grad.div_assign(&rhs.value.conj());
-        self.backward(grad);
+        &'a V | 'a: Neg<Output = V::Alloc>,
+        V::Alloc | 'a: Div<&'a Vrhs, Output = V::Output>,
+        V::Output | 'a: Div<&'a Vrhs, Output = V::Output>,
+        V::Output: Conj<Output = V::Alloc>,
+        &'a B | 'a: Mul<V::Alloc, Output = B::Alloc>,
+        &'a Vrhs | 'a: Recip<Output = Vrhs::Alloc>,
+        Vrhs::Alloc: Conj<Output = Vrhs::Alloc>,
+        B: Mul<Vrhs::Alloc, Output = B>;
+    (self, rhs) => move |grad| {
+        rhs.backward(&grad * ((-&self.value / &rhs.value) / &rhs.value).conj());
+        self.backward(grad * rhs.value.recip().conj());
     }
 }
 
-binary_op_impl! {
+// NOTE: float only.
+two_diff_op_impl! {
     Atan2; atan2; "atan2_back";
     where
-        Vrhs: AllocLike,
-        T: Neg<Output = T> | One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        &'a Vrhs | 'a: Pow<i32, Output = Vrhs::Alloc>,
-        V::Alloc | 'a: AddAssign<&'a Vrhs::Alloc>,
-        B::Alloc | 'a: MulAssign<&'a Vrhs>,
-        B::Alloc | 'a: MulAssign<&'a V>,
-        B::Alloc | 'a: DivAssign<&'a V::Alloc>,
-        B::Alloc: MulAssign<T>,
-        B | 'a: MulAssign<&'a Vrhs>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
-        let mut div = self.value.pow(2);
-        div.add_assign(&rhs.value.pow(2));
-
-        let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_assign(&rhs.value);
-        rhs_grad.mul_assign(&self.value);
-        rhs_grad.div_assign(&div);
-        rhs_grad.mul_assign(-T::ONE);
-        rhs.backward(rhs_grad);
-
-        grad.mul_assign(&rhs.value);
-        grad.div_assign(&div);
-        self.backward(grad);
+        Vrhs: AllocLike<Scalar = T>,
+        &'a V | 'a: Neg<Output = V::Alloc>,
+        &'a V | 'a: Mul<Output = V::Alloc>,
+        &'a Vrhs | 'a: Mul<Output = Vrhs::Alloc>,
+        V::Alloc: Add<Vrhs::Alloc, Output = V::Output>,
+        &'a B | 'a: Mul<V::Alloc, Output = B::Alloc>,
+        B::Alloc | 'a: Div<&'a V::Output, Output = B::Alloc>,
+        B | 'a: Mul<&'a Vrhs, Output = B>,
+        B: Div<V::Output, Output = B>;
+    (self, rhs) => move |grad| {
+        let norm_sqr = &self.value * &self.value + &rhs.value * &rhs.value;
+        rhs.backward(&grad * -&self.value / &norm_sqr);
+        self.backward(grad * &rhs.value / norm_sqr);
     }
 }
 
-binary_op_impl! {
+// NOTE: float only.
+two_diff_op_impl! {
     Hypot; hypot; "hypot_back";
     where
-        Vrhs: AllocLike<Scalar = T>,
-        &'a Vrhs | 'a, 'b: Div<&'b V::Alloc, Output = Vrhs::Alloc>,
-        &'a B | 'a, 'b: Mul<&'b Vrhs::Alloc, Output = B::Alloc>,
-        &'a V | 'a, 'b: Div<&'b V::Alloc, Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
+        &'a B | 'a, 'b: Mul<&'b Vrhs, Output = B::Alloc>,
+        B::Alloc | 'a: Div<&'a V::Output, Output = B::Alloc>,
+        B | 'a: Mul<&'a V, Output = B>,
+        B: Div<V::Output, Output = B>;
+    (self, rhs) => move |grad| {
         let result = self.value.hypot(&rhs.value);
-        rhs.backward(grad.mul(&rhs.value.div(&result)));
-        
-        grad.mul_assign(&self.value.div(&result));
-        self.backward(grad);
+        rhs.backward(&grad * &rhs.value / &result);
+        self.backward(grad * &self.value / result);
     }
 }
 
-binary_op_impl! {
+// NOTE: float only.
+two_diff_op_impl! {
     Copysign; copysign; "copysign_back";
     where
-        Vrhs: AllocLike,
-        B::Alloc | 'a: MulAssign<&'a V>,
+        Vrhs: AllocLike<Scalar = T>,
         &'a V | 'a: Signum<Output = V::Alloc>,
         &'a Vrhs | 'a: Signum<Output = Vrhs::Alloc>,
-        &'a V::Alloc | 'a, 'b: Mul<&'b Vrhs::Alloc, Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
+        B: Mul<V::Alloc, Output = B>,
+        B: Mul<Vrhs::Alloc, Output = B>;
+    (self, rhs) => move |grad| {
         rhs.backward(grad.fill_like(T::ZERO));
-        grad.mul_assign(&self.value.signum().mul(&rhs.value.signum()));
-        self.backward(grad);
+        self.backward(grad * self.value.signum() * rhs.value.signum());
     }
 }
 
-binary_op_impl! {
+// NOTE: float only.
+two_diff_op_impl! {
     Max; max; "max_back";
     where
-        &'a V | 'a, 'b: MaxMask<&'b Vrhs, Output = V::Alloc>,
-        &'a V::Alloc | 'a: MulAdd<T, T, Output = V::Alloc>,
-        B::Alloc | 'a: MulAssign<&'a V::Alloc>,
+        &'a V | 'a, 'b: MaxMask<&'b Vrhs, Output = V::Output>,
         T: Neg<Output = T> | One,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
+        &'a V::Output | 'a: MulAdd<T, T, Output = V::Output>,
+        &'a B | 'a: Mul<V::Output, Output = B::Alloc>,
+        B: Mul<V::Output, Output = B>;
+    (self, rhs) => move |grad| {
         let mask = self.value.max_mask(&rhs.value);
-        let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_assign(&mask.mul_add(-T::ONE, T::ONE));
-        rhs.backward(rhs_grad);
-
-        grad.mul_assign(&mask);
-        self.backward(grad);
+        rhs.backward(&grad * mask.mul_add(-T::ONE, T::ONE));
+        self.backward(grad * mask);
     }
 }
 
-binary_op_impl! {
+// NOTE: float only.
+two_diff_op_impl! {
     Min; min; "min_back";
     where
-        &'a V | 'a, 'b: MinMask<&'b Vrhs, Output = V::Alloc>,
-        &'a V::Alloc | 'a: MulAdd<T, T, Output = V::Alloc>,
-        B::Alloc | 'a: MulAssign<&'a V::Alloc>,
+        &'a V | 'a, 'b: MinMask<&'b Vrhs, Output = V::Output>,
         T: Neg<Output = T> | One,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
+        &'a V::Output | 'a: MulAdd<T, T, Output = V::Output>,
+        &'a B | 'a: Mul<V::Output, Output = B::Alloc>,
+        B: Mul<V::Output, Output = B>;
+    (self, rhs) => move |grad| {
         let mask = self.value.min_mask(&rhs.value);
-        let mut rhs_grad = grad.to_contiguous();
-        rhs_grad.mul_assign(&mask.mul_add(-T::ONE, T::ONE));
-        rhs.backward(rhs_grad);
-
-        grad.mul_assign(&mask);
-        self.backward(grad);
+        rhs.backward(&grad * mask.mul_add(-T::ONE, T::ONE));
+        self.backward(grad * mask);
     }
 }
 
-macro_rules! ternary_op_impl {
+macro_rules! three_diff_op_impl {
     (
         $trait_name:ident;
         $fn_name:ident;
@@ -267,9 +228,9 @@ macro_rules! ternary_op_impl {
             B: AllocLike<Scalar = T>,
 
             // Backward calls on inputs in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
-            Grhs0: for<'a> AddAssign<&'a B::Alloc>,
-            Grhs1: for<'a> AddAssign<&'a B::Alloc>,
+            G: BackwardCompatible<B>,
+            Grhs0: BackwardCompatible<B::Alloc>,
+            Grhs1: BackwardCompatible<B::Alloc>,
 
             // Lifetime bounds required by output backward closure.
             T: 'var,
@@ -289,24 +250,10 @@ macro_rules! ternary_op_impl {
             type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
             fn $fn_name($self, $rhs0: Variable<'var, T, Vrhs0, Grhs0, B::Alloc>, $rhs1: Variable<'var, T, Vrhs1, Grhs1, B::Alloc>) -> Self::Output {
                 let value = $self.value.$fn_name(&$rhs0.value, &$rhs1.value);
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    let rhs0_grad = $rhs0.grad.borrow();
-                    let rhs1_grad = $rhs1.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else if let Some(_) = *rhs0_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else if let Some(_) = *rhs1_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else {
-                        None
-                    }
-                };
 
                 Variable(Rc::new(InternalVariable {
                     value,
-                    grad: RefCell::new(grad),
+                    grad: RefCell::new(None),
                     backward_op_name: $op_name,
                     backward_closure: Box::new($backward_closure),
                 }), PhantomData)
@@ -315,492 +262,60 @@ macro_rules! ternary_op_impl {
     };
 }
 
-ternary_op_impl! {
+three_diff_op_impl! {
     MulAdd; mul_add; "mul_add_back";
     where
         Vrhs0: AllocLike<Scalar = T>,
         &'a V | 'a: Conj<Output = V::Alloc>,
+        &'a B | 'a: Mul<V::Alloc, Output = B::Alloc>,
         &'a Vrhs0 | 'a: Conj<Output = Vrhs0::Alloc>,
-        &'a B | 'a, 'b: Mul<&'b V::Alloc, Output = B::Alloc>,
-        B | 'a: MulAssign<&'a Vrhs0::Alloc>;
-    (self, rhs0, rhs1) => move |mut grad| {
+        B: Mul<Vrhs0::Alloc, Output = B>;
+    (self, rhs0, rhs1) => move |grad| {
         rhs1.backward(grad.to_contiguous());
-        rhs0.backward(grad.mul(&self.value.conj()));
-        grad.mul_assign(&rhs0.value.conj());
-        self.backward(grad);
+        rhs0.backward(&grad * self.value.conj());
+        self.backward(grad * rhs0.value.conj());
     }
 }
 
-macro_rules! one_param_op_impl {
-    (
-        $trait_name:ident$(<$param:ident>)?;
-        $fn_name:ident;
-        $op_name:expr;
-        $(where $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
-        ($self:ident, $rhs:ident) => $backward_closure:expr
-    ) => {
-        macro_rules! isset_or_default {
-            ($var:ty) => {
-                $var
-            };
-            () => {
-                T
-            };
-        }
-
-        impl<'var, T, V, G, B $(,$param)?> $trait_name<isset_or_default!($($param)?)> for Variable<'var, T, V, G, B>
-        where
-            // Forward operation.
-            for<'a> &'a V: $trait_name<isset_or_default!($($param)?), Output = V::Alloc>,
-            // Output variable gradient allocation.
-            V: AllocLike<Scalar = T>,
-            T: Zero,
-
-            // Backward call on input in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
-            T: Copy,
-            $($param: Copy,)?
-
-            // Lifetime bounds required by output backward closure.
-            T: 'var,
-            V: 'var,
-            G: 'var,
-            B: 'var,
-            $($param: 'var,)?
-
-            // Additionnal bounds needed by either forward or
-            // backward passes
-            $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
-        {
-            type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
-            fn $fn_name($self, $rhs: isset_or_default!($($param)?)) -> Self::Output {
-                let value = $self.value.$fn_name($rhs);
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else {
-                        None
-                    }
-                };
-
-                Variable(Rc::new(InternalVariable {
-                    value,
-                    grad: RefCell::new(grad),
-                    backward_op_name: $op_name,
-                    backward_closure: Box::new($backward_closure),
-                }), PhantomData)
-            }
-        }
-    };
-}
-
-one_param_op_impl! {
-    Add; add; "add_scalar_back";
-    (self, rhs) => move |grad| {
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Sub; sub; "sub_scalar_back";
-    (self, rhs) => move |grad| {
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Mul; mul; "mul_scalar_back";
-    where
-        T: Conj<Output = T>,
-        B: MulAssign<T>;
-    (self, rhs) => move |mut grad| {
-        grad.mul_assign(rhs.conj());
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Div; div; "div_scalar_back";
-    where
-        T: Conj<Output = T>,
-        B: DivAssign<T>;
-    (self, rhs) => move |mut grad| {
-        grad.div_assign(rhs.conj());
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Atan2; atan2; "atan2_back";
-    where
-        T: Pow<i32, Output = T> | Neg<Output = T> | One | Copy,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc | 'a: AddAssign<T>,
-        B | 'a: MulAssign<T>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
-        let mut div = self.value.pow(2);
-        div.add_assign(rhs.pow(2));
-        grad.mul_assign(rhs);
-        grad.div_assign(&div);
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Hypot; hypot; "hypot_scalar_back";
-    where
-        B | 'a: MulAssign<&'a V>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
-        grad.mul_assign(&self.value);
-        grad.div_assign(&self.value.hypot(rhs));
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Copysign; copysign; "copysign_back";
-    where
-        T: Signum<Output = T> | Copy,
-        &'a V | 'a: Signum<Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>,
-        B: MulAssign<T>;
-    (self, rhs) => move |mut grad| {
-        grad.mul_assign(&self.value.signum());
-        grad.mul_assign(rhs.signum());
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Max; max; "max_scalar_back";
-    where
-        &'a V | 'a: MaxMask<T, Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
-        let mask = self.value.max_mask(rhs);
-        grad.mul_assign(&mask);
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Min; min; "min_scalar_back";
-    where
-        &'a V | 'a: MinMask<T, Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
-        let mask = self.value.min_mask(rhs);
-        grad.mul_assign(&mask);
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Pow<Rhs>; pow; "pow_back";
-    where
-        Rhs: Zero | One | PartialEq | Sub<Output = Rhs>,
-        V::Alloc: MulAssign<Rhs>,
-        V::Alloc: ConjAssign,
-        B: MulAssign<Rhs>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
-        if rhs == Rhs::ZERO {
-            grad.mul_assign(Rhs::ZERO);
-        } else if rhs != Rhs::ONE {
-            let mut part_grad = self.value.pow(rhs - Rhs::ONE);
-            part_grad.mul_assign(rhs);
-            part_grad.conj_assign();
-            grad.mul_assign(&part_grad);
-        }
-        self.backward(grad);
-    }
-}
-
-one_param_op_impl! {
-    Log; log; "log_back";
-    where
-        T: Ln<Output = T> | Copy,
-        &'a V | 'a: Mul<T, Output = V::Alloc>,
-        V::Alloc: ConjAssign,
-        B |'a: DivAssign<&'a V::Alloc>;
-    (self, rhs) => move |mut grad| {
-        let mut part_grad = self.value.mul(rhs.ln());
-        part_grad.conj_assign();
-        grad.div_assign(&part_grad);
-        self.backward(grad);
-    }
-}
-
-// NOTE: the scalar type cannot be made generic
-// as it would violate the orphan rule.
-macro_rules! reversed_one_param_op_impl {
+macro_rules! diff_nondiff_op_impl {
     (
         $trait_name:ident;
         $fn_name:ident;
         $op_name:expr;
         $(where $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
-        ($self:ident, $rhs:ident) => $forward:block => $backward_closure:expr
+        ($self:ident, $rhs:ident) => $backward_closure:expr
     ) => {
-        macro_rules! inner_impl {
-            ($t:ty) => {
-                impl<'var, V, G, B> $trait_name<Variable<'var, $t, V, G, B>> for $t
-                where
-                    // Forward operation.
-                    for<'a> &'a V: $trait_name<$t, Output = V::Alloc>,
-                    // Output variable gradient allocation.
-                    V: AllocLike<Scalar = $t>,
-                    $t: Zero,
-                    // Backward gradient "copy" in output backward closure.
-                    B: AllocLike<Scalar = $t>,
-                    // Backward calls on inputs in output backward closure.
-                    G: for<'a> AddAssign<&'a B>,
-                    // Lifetime bounds required by output backward closure.
-                    V: 'var,
-                    G: 'var,
-                    B: 'var,
-                    // Additionnal bounds needed by either forward or
-                    // backward passes
-                    $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
-                {
-                    type Output = Variable<'var, $t, V::Alloc, V::Alloc, B>;
-                    fn $fn_name($self, $rhs: Variable<'var, $t, V, G, B>) -> Self::Output {
-                        let value = $forward;
-                        let grad = {
-                            let rhs_grad = $rhs.grad.borrow();
-                            if let Some(_) = *rhs_grad {
-                                Some($rhs.value.fill_like(<$t>::ZERO))
-                            } else {
-                                None
-                            }
-                        };
-                        Variable(Rc::new(InternalVariable {
-                            value,
-                            grad: RefCell::new(grad),
-                            backward_op_name: $op_name,
-                            backward_closure: Box::new($backward_closure),
-                        }), PhantomData)
-                    }
-                }
-            };
-        }
-
-        inner_impl! { f64 }
-        inner_impl! { f32 }
-        inner_impl! { Complex64 }
-        inner_impl! { Complex32 }
-    };
-}
-
-reversed_one_param_op_impl! {
-    Add; add; "scalar_add_back";
-    (self, rhs) => {
-        rhs.value.add(self)
-    }
-    => move |grad| {
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Sub; sub; "scalar_sub_back";
-    where
-        Self: One,
-        &'a V | 'a: MulAdd<Self, Self, Output = V::Alloc>;
-    (self, rhs) => {
-        rhs.value.mul_add(-Self::ONE, Self::ONE)
-    }
-    => move |grad| {
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Mul; mul; "scalar_mul_back";
-    where
-        Self: Copy | Conj,
-        B: MulAssign<Self>;
-    (self, rhs) => {
-        rhs.value.mul(self)
-    }
-    => move |mut grad| {
-        grad.mul_assign(self.conj());
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Div; div; "scalar_div_back";
-    where
-        &'a V | 'a: Recip<Output = V::Alloc>,
-        V::Alloc: MulAssign<Self>,
-        Self: Neg<Output = Self> | One,
-        V: AllocLike<Scalar = Self>,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: RecipAssign,
-        V::Alloc: MulAssign<Self>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => {
-        let mut value = rhs.value.recip();
-        value.mul_assign(self);
-        value
-    }
-    => move |mut grad| {
-        let mut part_grad = rhs.value.pow(2);
-        part_grad.recip_assign();
-        part_grad.mul_assign(-self);
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Atan2; atan2; "scalar_atan2_back";
-    where
-        &'a V::Alloc | 'a, 'b: Atan2<&'b V, Output = V::Alloc>,
-        Self: Pow<i32, Output = Self> | Neg<Output = Self> | One | Copy,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc | 'a: AddAssign<Self>,
-        B | 'a: MulAssign<&'a V>,
-        B | 'a: MulAssign<Self>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self, rhs) => {
-        let lhs = rhs.value.fill_like(self);
-        lhs.atan2(&rhs.value)
-    }
-    => move |mut grad| {
-        let mut div = rhs.value.pow(2);
-        div.add_assign(self.pow(2));
-        grad.mul_assign(&rhs.value);
-        grad.mul_assign(self);
-        grad.div_assign(&div);
-        grad.mul_assign(-Self::ONE);
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Hypot; hypot; "scalar_hypot_back";
-    where
-        B | 'a: MulAssign<&'a V>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self, rhs) => {
-        rhs.value.hypot(self)
-    }
-    => move |mut grad| {
-        grad.mul_assign(&rhs.value);
-        grad.div_assign(&rhs.value.hypot(self));
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Copysign; copysign; "scalar_copysign_back";
-    where
-        &'a V::Alloc | 'a, 'b: Copysign<&'b V, Output = V::Alloc>,
-        B: ZeroOut;
-    (self, rhs) => {
-        let lhs = rhs.value.fill_like(self);
-        lhs.copysign(&rhs.value)
-    }
-    => move |mut grad| {
-        grad.zero_out();
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Max; max; "scalar_max_back";
-    where
-        &'a V | 'a: MaxMask<Self, Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => {
-        rhs.value.max(self)
-    }
-    => move |mut grad| {
-        let mask = rhs.value.max_mask(self);
-        grad.mul_assign(&mask);
-        rhs.backward(grad);
-    }
-}
-
-reversed_one_param_op_impl! {
-    Min; min; "scalar_min_back";
-    where
-        &'a V | 'a: MinMask<Self, Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self, rhs) => {
-        rhs.value.min(self)
-    }
-    => move |mut grad| {
-        let mask = rhs.value.min_mask(self);
-        grad.mul_assign(&mask);
-        rhs.backward(grad);
-    }
-}
-
-macro_rules! two_param_op_impl {
-    (
-        $trait_name:ident$(<$param0:ident, $param1:ident>)?;
-        $fn_name:ident;
-        $op_name:expr;
-        $(where $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
-        ($self:ident, $rhs0:ident, $rhs1:ident) => $backward_closure:expr
-    ) => {
-        macro_rules! isset_or_default {
-            ($var:ty) => {
-                $var
-            };
-            () => {
-                T
-            };
-        }
-
-        impl<'var, T, V, G, B $(,$param0, $param1)?> $trait_name<isset_or_default!($($param0)?), isset_or_default!($($param1)?)> for Variable<'var, T, V, G, B>
+        impl<'var, T, V, G, B, Rhs> $trait_name<Rhs> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
-            for<'a> &'a V: $trait_name<isset_or_default!($($param0)?), isset_or_default!($($param1)?), Output = V::Alloc>,
+            for<'a> &'a V: $trait_name<Rhs, Output = V::Alloc>,
             // Output variable gradient allocation.
             V: AllocLike<Scalar = T>,
             T: Zero,
 
             // Backward call on input in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
+            G: BackwardCompatible<B>,
             T: Copy,
-            $($param0: Copy,)?
-            $($param1: Copy,)?
+            Rhs: Copy,
 
-            // Lifetime bounds required by output backward closure.
-            T: 'var,
-            V: 'var,
-            G: 'var,
-            B: 'var,
-            $($param0: 'var,)?
-            $($param1: 'var,)?
+            // 'static bounds required by output backward closure.
+            T: 'static,
+            V: 'static,
+            G: 'static,
+            B: 'static,
+            Rhs: 'static,
 
             // Additionnal bounds needed by either forward or
             // backward passes
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
             type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
-            fn $fn_name($self, $rhs0: isset_or_default!($($param0)?), $rhs1: isset_or_default!($($param1)?)) -> Self::Output {
-                let value = $self.value.$fn_name($rhs0, $rhs1);
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else {
-                        None
-                    }
-                };
+            fn $fn_name($self, $rhs: Rhs) -> Self::Output {
+                let value = $self.value.$fn_name($rhs);
 
                 Variable(Rc::new(InternalVariable {
                     value,
-                    grad: RefCell::new(grad),
+                    grad: RefCell::new(None),
                     backward_op_name: $op_name,
                     backward_closure: Box::new($backward_closure),
                 }), PhantomData)
@@ -809,14 +324,35 @@ macro_rules! two_param_op_impl {
     };
 }
 
-two_param_op_impl! {
-    MulAdd; mul_add; "mul_add_scalar_back";
+diff_nondiff_op_impl! {
+    Pow; pow; "pow_back";
     where
-        T: Conj<Output = T>,
-        B | 'a: MulAssign<T>;
-    (self, rhs0, rhs1) => move |mut grad| {
-        grad.mul_assign(rhs0.conj());
-        self.backward(grad);
+        B: ZeroOut,
+        Rhs: Zero | One | PartialEq | Sub<Output = Rhs>,
+        V::Alloc: Mul<Rhs, Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self, rhs) => move |mut grad| {
+        self.backward(if rhs == Rhs::ZERO {
+            grad.zero_out();
+            grad
+        } else if rhs != Rhs::ONE {
+            grad * (self.value.pow(rhs - Rhs::ONE) * rhs).conj()
+        } else {
+            grad
+        });
+    }
+}
+
+diff_nondiff_op_impl! {
+    Log; log; "log_back";
+    where
+        Rhs: Ln<Output = Rhs>,
+        &'a V | 'a: Mul<Rhs, Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self, rhs) => move |grad| {
+        self.backward(grad / (&self.value * rhs.ln()).conj());
     }
 }
 
@@ -837,7 +373,7 @@ macro_rules! fn_impl {
             T: Zero,
 
             // Backward call on input in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
+            G: BackwardCompatible<B>,
 
             // 'static bounds required by output backward closure.
             T: 'var,
@@ -852,18 +388,9 @@ macro_rules! fn_impl {
             type Output = Variable<'var, T, V::Alloc, V::Alloc, B>;
             fn $fn_name($self) -> Self::Output {
                 let value = $self.value.$fn_name();
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_like(T::ZERO))
-                    } else {
-                        None
-                    }
-                };
-
                 Variable(Rc::new(InternalVariable {
                     value,
-                    grad: RefCell::new(grad),
+                    grad: RefCell::new(None),
                     backward_op_name: $op_name,
                     backward_closure: Box::new($backward_closure),
                 }), PhantomData)
@@ -875,13 +402,10 @@ macro_rules! fn_impl {
 fn_impl! {
     Exp; exp; "exp_back";
     where
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.exp();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * self.value.exp().conj());
     }
 }
 
@@ -889,15 +413,11 @@ fn_impl! {
     Exp2; exp2; "exp2_back";
     where
         T: Ln2,
-        V::Alloc: MulAssign<V::Scalar>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.exp2();
-        part_grad.mul_assign(T::LN_2);
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>,
+        B: Mul<T, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * self.value.exp2().conj() * T::LN_2);
     }
 }
 
@@ -905,27 +425,20 @@ fn_impl! {
     ExpM1; exp_m1; "exp_m1_back";
     where
         &'a V | 'a: Exp<Output = V::Alloc>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.exp();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * self.value.exp().conj());
     }
 }
 
 fn_impl! {
     Ln; ln; "ln_back";
     where
-        &'a V | 'a: Recip<Output = V::Alloc>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.recip();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / self.value.conj());
     }
 }
 
@@ -933,16 +446,11 @@ fn_impl! {
     Ln1p; ln_1p; "ln_1p_back";
     where
         T: One,
-        &'a V | 'a: Add<T, Output = V::Alloc>,
-        V::Alloc: RecipAssign,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.add(T::ONE);
-        part_grad.recip_assign();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        T | 'a: Add<&'a V, Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (T::ONE + &self.value).conj());
     }
 }
 
@@ -950,33 +458,23 @@ fn_impl! {
     Log2; log2; "log2_back";
     where
         T: Ln2,
-        &'a V | 'a: Mul<T, Output = V::Alloc>,
-        V::Alloc: RecipAssign,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.mul(T::LN_2);
-        part_grad.recip_assign();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Conj<Output = V::Alloc>,
+        V::Alloc: Mul<T, Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (self.value.conj() * T::LN_2));
     }
 }
 
 fn_impl! {
-    Log10; log10; "log10_back";
+    Log10; log10; "log2_back";
     where
         T: Ln10,
-        &'a V | 'a: Mul<T, Output = V::Alloc>,
-        V::Alloc: RecipAssign,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.mul(T::LN_10);
-        part_grad.recip_assign();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Conj<Output = V::Alloc>,
+        V::Alloc: Mul<T, Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (self.value.conj() * T::LN_10));
     }
 }
 
@@ -984,30 +482,22 @@ fn_impl! {
     Sin; sin; "sin_back";
     where
         &'a V | 'a: Cos<Output = V::Alloc>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.cos();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * self.value.cos().conj());
     }
 }
 
 fn_impl! {
     Cos; cos; "cos_back";
     where
-        T: Neg<Output = T> | One,
         &'a V | 'a: Sin<Output = V::Alloc>,
-        V::Alloc: MulAssign<T>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.sin();
-        part_grad.mul_assign(-T::ONE);
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        V::Alloc: Neg<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * -self.value.sin().conj());
     }
 }
 
@@ -1015,17 +505,13 @@ fn_impl! {
     Tan; tan; "tan_back";
     where
         T: One,
-        V::Alloc: PowAssign<i32>,
-        V::Alloc: AddAssign<T>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.tan();
-        part_grad.pow_assign(2);
-        part_grad.add_assign(T::ONE);
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        &'a V::Alloc | 'a: Mul<Output = V::Alloc>,
+        T: Add<V::Alloc, Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        let result = self.value.tan();
+        self.backward(grad * (T::ONE + &result * &result).conj());
     }
 }
 
@@ -1033,13 +519,10 @@ fn_impl! {
     Sinh; sinh; "sinh_back";
     where
         &'a V | 'a: Cosh<Output = V::Alloc>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.cosh();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * self.value.cosh().conj());
     }
 }
 
@@ -1047,80 +530,55 @@ fn_impl! {
     Cosh; cosh; "cosh_back";
     where
         &'a V | 'a: Sinh<Output = V::Alloc>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.sinh();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * self.value.sinh().conj());
     }
 }
 
 fn_impl! {
     Tanh; tanh; "tanh_back";
     where
-        T: Neg<Output = T> | One,
-        V::Alloc: PowAssign<i32>,
-        V::Alloc: MulAssign<T>,
-        V::Alloc: AddAssign<T>,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.tanh();
-        part_grad.pow_assign(2);
-        part_grad.mul_assign(-T::ONE);
-        part_grad.add_assign(T::ONE);
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        T: One,
+        &'a V::Alloc | 'a: Mul<Output = V::Alloc>,
+        T: Sub<V::Alloc, Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        let result = self.value.tanh();
+        self.backward(grad * (T::ONE - &result * &result).conj());
     }
 }
 
 fn_impl! {
     Asin; asin; "asin_back";
     where
-        T: Neg<Output = T> | One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: MulAssign<T>,
-        V::Alloc: AddAssign<T>,
-        V::Alloc: SqrtAssign,
-        V::Alloc: RecipAssign,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.mul_assign(-T::ONE);
-        part_grad.add_assign(T::ONE);
-        part_grad.sqrt_assign();
-        part_grad.recip_assign();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        T: One,
+        &'a V | 'a: Neg<Output = V::Alloc>,
+        V::Alloc | 'a: Mul<&'a V, Output = V::Alloc>,
+        V::Alloc: Add<T, Output = V::Alloc>,
+        V::Alloc: Sqrt<Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (-&self.value * &self.value + T::ONE).sqrt().conj())
     }
 }
 
 fn_impl! {
     Acos; acos; "acos_back";
     where
-        T: Neg<Output = T> | One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: MulAssign<T>,
-        V::Alloc: AddAssign<T>,
-        V::Alloc: SqrtAssign,
-        V::Alloc: RecipAssign,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.mul_assign(-T::ONE);
-        part_grad.add_assign(T::ONE);
-        part_grad.sqrt_assign();
-        part_grad.recip_assign();
-        part_grad.mul_assign(-T::ONE);
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        T: One,
+        &'a V | 'a: Neg<Output = V::Alloc>,
+        V::Alloc | 'a: Mul<&'a V, Output = V::Alloc>,
+        V::Alloc: Add<T, Output = V::Alloc>,
+        V::Alloc: Sqrt<Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        V::Alloc: Neg<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / -(-&self.value * &self.value + T::ONE).sqrt().conj())
     }
 }
 
@@ -1128,16 +586,12 @@ fn_impl! {
     Atan; atan; "atan_back";
     where
         T: One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: AddAssign<T>,
-        V::Alloc: ConjAssign,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.add_assign(T::ONE);
-        part_grad.conj_assign();
-        grad.div_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Mul<Output = V::Alloc>,
+        V::Alloc: Add<T, Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (&self.value * &self.value + T::ONE).conj())
     }
 }
 
@@ -1145,20 +599,13 @@ fn_impl! {
     Asinh; asinh; "asinh_back";
     where
         T: One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: AddAssign<T>,
-        V::Alloc: SqrtAssign,
-        V::Alloc: RecipAssign,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.add_assign(T::ONE);
-        part_grad.sqrt_assign();
-        part_grad.recip_assign();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Mul<Output = V::Alloc>,
+        V::Alloc: Add<T, Output = V::Alloc>,
+        V::Alloc: Sqrt<Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (&self.value * &self.value + T::ONE).sqrt().conj())
     }
 }
 
@@ -1166,39 +613,26 @@ fn_impl! {
     Acosh; acosh; "acosh_back";
     where
         T: One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: SubAssign<T>,
-        V::Alloc: SqrtAssign,
-        V::Alloc: RecipAssign,
-        V::Alloc: ConjAssign,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.sub_assign(T::ONE);
-        part_grad.sqrt_assign();
-        part_grad.recip_assign();
-        part_grad.conj_assign();
-        grad.mul_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Mul<Output = V::Alloc>,
+        V::Alloc: Sub<T, Output = V::Alloc>,
+        V::Alloc: Sqrt<Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (&self.value * &self.value - T::ONE).sqrt().conj())
     }
 }
 
 fn_impl! {
     Atanh; atanh; "atanh_back";
     where
-        T: Neg<Output = T> | One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: MulAssign<T>,
-        V::Alloc: AddAssign<T>,
-        V::Alloc: ConjAssign,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.mul_assign(-T::ONE);
-        part_grad.add_assign(T::ONE);
-        part_grad.conj_assign();
-        grad.div_assign(&part_grad);
-        self.backward(grad);
+        T: One,
+        &'a V | 'a: Mul<Output = V::Alloc>,
+        T: Sub<V::Alloc, Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (T::ONE - &self.value * &self.value).conj())
     }
 }
 
@@ -1206,15 +640,11 @@ fn_impl! {
     Sqrt; sqrt; "sqrt_back";
     where
         i32: Cast<T>,
-        V::Alloc: ConjAssign,
-        V::Alloc: MulAssign<T>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.sqrt();
-        part_grad.conj_assign();
-        part_grad.mul_assign(2.as_());
-        grad.div_assign(&part_grad);
-        self.backward(grad);
+        V::Alloc: Conj<Output = V::Alloc>,
+        T: Mul<V::Alloc, Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (2.as_() * self.value.sqrt().conj()))
     }
 }
 
@@ -1222,18 +652,13 @@ fn_impl! {
     Cbrt; cbrt; "cbrt_back";
     where
         i32: Cast<T>,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: CbrtAssign,
-        V::Alloc: ConjAssign,
-        V::Alloc: MulAssign<T>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.cbrt_assign();
-        part_grad.conj_assign();
-        part_grad.mul_assign(3.as_());
-        grad.div_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Mul<Output = V::Alloc>,
+        V::Alloc: Cbrt<Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        T: Mul<V::Alloc, Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / (3.as_() * (&self.value * &self.value).cbrt().conj()))
     }
 }
 
@@ -1241,10 +666,9 @@ fn_impl! {
     Abs; abs; "abs_back";
     where
         &'a V | 'a: Signum<Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        grad.mul_assign(&self.value.signum());
-        self.backward(grad);
+        B: Mul<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * self.value.signum());
     }
 }
 
@@ -1268,23 +692,19 @@ zero_grad_ops_impl! {
     Floor, floor, "floor_back";
     Round, round, "round_back";
     Trunc, trunc, "trunc_assign";
-    Fract, fract, "fract_assign"
+    Fract, fract, "fract_assign";
+    Conj, conj, "conj_back"
 }
 
 fn_impl! {
     Recip; recip; "recip_back";
     where
-        T: Neg<Output = T> | One,
-        &'a V | 'a: Pow<i32, Output = V::Alloc>,
-        V::Alloc: ConjAssign,
-        V::Alloc: MulAssign<T>,
-        B | 'a: DivAssign<&'a V::Alloc>;
-    (self) => move |mut grad| {
-        let mut part_grad = self.value.pow(2);
-        part_grad.conj_assign();
-        part_grad.mul_assign(-T::ONE);
-        grad.div_assign(&part_grad);
-        self.backward(grad);
+        &'a V | 'a: Mul<Output = V::Alloc>,
+        V::Alloc: Conj<Output = V::Alloc>,
+        V::Alloc: Neg<Output = V::Alloc>,
+        B: Div<V::Alloc, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad / -(&self.value * &self.value).conj());
     }
 }
 
@@ -1292,10 +712,9 @@ fn_impl! {
     ToDegrees; to_degrees; "abs_back";
     where
         T: RadDeg,
-        B | 'a: MulAssign<T>;
-    (self) => move |mut grad| {
-        grad.mul_assign(T::RAD_TO_DEG);
-        self.backward(grad);
+        B: Mul<T, Output = B>;
+    (self) => move |grad| {
+        self.backward(grad * T::RAD_TO_DEG);
     }
 }
 
@@ -1303,17 +722,9 @@ fn_impl! {
     ToRadians; to_radians; "abs_back";
     where
         T: RadDeg,
-        B | 'a: MulAssign<T>;
-    (self) => move |mut grad| {
-        grad.mul_assign(T::DEG_TO_RAD);
-        self.backward(grad);
-    }
-}
-
-fn_impl! {
-    Conj; conj; "conj_back";
+        B: Mul<T, Output = B>;
     (self) => move |grad| {
-        self.backward(grad);
+        self.backward(grad * T::DEG_TO_RAD);
     }
 }
 
@@ -1344,18 +755,16 @@ macro_rules! cross_domain_fn_impl {
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?;
         }
-        
         impl<'var, T, V, G, B> $wrapper_trait_name<'var> for Variable<'var, $t, V, G, B>
         where
             // Forward operation.
             for<'a> &'a V: $trait_name<Output = V::Alloc>,
-            
             // Output variable gradient allocation.
             V: AllocSameShape<$output_type>,
             $output_type: Zero,
 
             // Backward call on input in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
+            G: BackwardCompatible<B>,
 
             // Lifetime bounds required by output backward closure.
             T: 'var,
@@ -1378,18 +787,10 @@ macro_rules! cross_domain_fn_impl {
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?
             {
                 let value = $self.value.$fn_name();
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_same_shape(<$output_type>::ZERO))
-                    } else {
-                        None
-                    }
-                };
 
                 Variable(Rc::new(InternalVariable {
                     value,
-                    grad: RefCell::new(grad),
+                    grad: RefCell::new(None),
                     backward_op_name: $op_name,
                     backward_closure: Box::new($backward_closure),
                 }), PhantomData)
@@ -1420,14 +821,11 @@ cross_domain_fn_impl! {
     VariableNorm<Output = T> for Complex<T>;
     Norm; norm; "norm_back";
     where trait
-        B | 'a: MulAssign<&'a V>;
+        B | 'a: Mul<&'a V, Output = B>;
     where fn
-        Bnext | 'a: DivAssign<&'a Self::OutputValue>;
-    (self) => move |mut grad| {
-        grad.div_assign(&self.value.norm());
-        let mut grad = grad.as_();
-        grad.mul_assign(&self.value);
-        self.backward(grad);
+        Bnext: Div<Self::OutputValue, Output = Bnext>;
+    (self) => move |grad| {
+        self.backward((grad / self.value.norm()).as_() * &self.value )
     }
 }
 
@@ -1435,13 +833,12 @@ cross_domain_fn_impl! {
     VariableNormSqr<Output = T> for Complex<T>;
     NormSqr; norm_sqr; "norm_sqr_back";
     where trait
-        B | 'a: MulAssign<&'a V>;
+        B | 'a: Mul<&'a V, Output = B>,
+        i32: Cast<T>;
     where fn
-        Bnext | 'a: DivAssign<&'a Self::OutputValue>;
+        Bnext: Mul<Self::OutputScalar, Output = Bnext>;
     (self) => move |grad| {
-        let mut grad = grad.as_();
-        grad.mul_assign(&self.value);
-        self.backward(grad);
+        self.backward((grad * 2.as_()).as_() * &self.value);
     }
 }
 
@@ -1450,15 +847,12 @@ cross_domain_fn_impl! {
     Arg; arg; "arg_back";
     where trait
         &'a V | 'a: NormSqr<Output = V::Alloc>,
-        B | 'a: MulAssign<&'a V>;
+        B | 'a: Mul<&'a V, Output = B>;
     where fn
-        Bnext | 'a: DivAssign<&'a Self::OutputValue>,
-        &'a Bnext| 'a: J<Output = Self::Back>;
-    (self) => move |mut grad| {
-        grad.div_assign(&self.value.norm_sqr());
-        let mut grad = grad.j();
-        grad.mul_assign(&self.value);
-        self.backward(grad);
+        Bnext: Div<Self::OutputValue, Output = Bnext>,
+        Bnext: J<Output = Self::Back>;
+    (self) => move |grad| {
+        self.backward((grad / self.value.norm_sqr()).as_() * &self.value);
     }
 }
 
@@ -1468,11 +862,10 @@ cross_domain_fn_impl! {
     where trait
         T: Zero | One;
     where fn
-        Bnext: ConjAssign | MulAssign<Self::OutputScalar>;
-    (self) => move |mut grad| {
-        grad.conj_assign();
-        grad.mul_assign(Complex::new(T::ZERO, T::ONE));
-        self.backward(grad.as_());
+        Bnext: Conj<Output = Bnext>,
+        Bnext: Mul<Self::OutputScalar, Output = Bnext>;
+    (self) => move |grad| {
+        self.backward((grad.conj() * Complex::new(T::ZERO, T::ONE)).as_());
     }
 }
 
@@ -1480,21 +873,17 @@ cross_domain_fn_impl! {
     VariableEPowJ<Output = Complex<T>> for T;
     EPowJ; e_pow_j; "e_pow_j_back";
     where trait
-        T: Zero | One,
-        V::Alloc: MulAssign<Complex<T>>;
+        T: Zero | One;
     where fn
-        Bnext: ConjAssign,
-        Bnext | 'a: MulAssign<&'a Self::OutputValue>;
-    (self) => move |mut grad| {
-        grad.conj_assign();
-        let mut part_grad = self.value.e_pow_j();
-        part_grad.mul_assign(Complex::new(T::ZERO, T::ONE));
-        grad.mul_assign(&part_grad);
-        self.backward(grad.as_());
+        Bnext: Conj<Output = Bnext>,
+        Bnext | 'a: Mul<Self::OutputValue, Output = Bnext>,
+        Bnext: Mul<Self::OutputScalar, Output = Bnext>;
+    (self) => move |grad| {
+        self.backward((grad.conj() * self.value.e_pow_j() * Complex::new(T::ZERO, T::ONE)).as_())
     }
 }
 
-macro_rules! cross_domain_binary_op_impl {
+macro_rules! cross_domain_two_diff_op_impl {
     (
         $wrapper_trait_name:ident<Output = $output_type:ty> for $t:ty;
         $trait_name:ident;
@@ -1515,7 +904,7 @@ macro_rules! cross_domain_binary_op_impl {
             /// `B` parameter of the input `Variable`.
             type Back;
             /// `Vrhs::Alloc` where `Vrhs` is the `V` parameter of `Rhs`.
-            /// 
+            ///
             /// This is useful to write bounds on `Bnext` that are parametrized by `Vrhs::Alloc`.
             /// Such bounds must indeed be attached to the trait via the function. The problem
             /// is that the trait has no knowledge of `Vrhs` that is defined in the impl.
@@ -1527,20 +916,19 @@ macro_rules! cross_domain_binary_op_impl {
                 for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?;
         }
-        
         impl<'var, T, V, G, B, Vrhs, Grhs> $wrapper_trait_name<'var, Variable<'var, $t, Vrhs, Grhs, B>> for Variable<'var, $t, V, G, B>
         where
             // Forward operation.
-            for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = V::Alloc>,
-            
+            for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = V::Output>,
+            V: BinaryOp<Vrhs>,
             // Output variable gradient allocation.
             V: AllocSameShape<$output_type>,
             Vrhs: AllocSameShape<$output_type>,
             $output_type: Zero,
 
             // Backward call on inputs in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
-            Grhs: for<'a> AddAssign<&'a B>,
+            G: BackwardCompatible<B>,
+            Grhs: BackwardCompatible<B>,
 
             // Lifetime bounds required by output backward closure.
             T: 'var,
@@ -1555,7 +943,7 @@ macro_rules! cross_domain_binary_op_impl {
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
             type OutputScalar = $output_type;
-            type OutputValue = V::Alloc;
+            type OutputValue = V::Output;
             type OutputGrad = V::Alloc;
             type Back = B;
             type VrhsAlloc = Vrhs::Alloc;
@@ -1566,21 +954,10 @@ macro_rules! cross_domain_binary_op_impl {
                 $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?
             {
                 let value = $self.value.$fn_name(&$rhs.value);
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    let rhs_grad = $rhs.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_same_shape(<$output_type>::ZERO))
-                    } else if let Some(_) = *rhs_grad {
-                        Some($self.value.fill_same_shape(<$output_type>::ZERO))
-                    } else {
-                        None
-                    }
-                };
 
                 Variable(Rc::new(InternalVariable {
                     value,
-                    grad: RefCell::new(grad),
+                    grad: RefCell::new(None),
                     backward_op_name: $op_name,
                     backward_closure: Box::new($backward_closure),
                 }), PhantomData)
@@ -1589,22 +966,22 @@ macro_rules! cross_domain_binary_op_impl {
     };
 }
 
-cross_domain_binary_op_impl! {
+cross_domain_two_diff_op_impl! {
     VariableAddJ<Output = Complex<T>> for T;
     AddJ; add_j; "add_j_back";
     where trait
         T: Zero | One;
     where fn
-        Bnext: ConjAssign | MulAssign<Self::OutputScalar>;
+        Bnext: ConjAssign,
+        Bnext: Mul<Self::OutputScalar, Output = Bnext>;
     (self, rhs) => move |mut grad| {
         grad.conj_assign();
         self.backward(grad.as_());
-        grad.mul_assign(Complex::new(T::ZERO, T::ONE));
-        rhs.backward(grad.as_());
+        rhs.backward((grad * Complex::new(T::ZERO, T::ONE)).as_());
     }
 }
 
-cross_domain_binary_op_impl! {
+cross_domain_two_diff_op_impl! {
     VariableMulEPowJ<Output = Complex<T>> for T;
     MulEPowJ; mul_e_pow_j; "mul_e_pow_j_back";
     where trait
@@ -1613,124 +990,12 @@ cross_domain_binary_op_impl! {
         &'a Vrhs | 'a: EPowJ<Output = Vrhs::Alloc>,
         &'a V | 'a: J<Output = V::Alloc>;
     where fn
-        Bnext: ConjAssign,
-        Bnext | 'a: MulAssign<&'a Self::VrhsAlloc>,
-        Bnext | 'a: MulAssign<&'a Self::OutputValue>;
-    (self, rhs) => move |mut grad| {
-        grad.conj_assign();
-        grad.mul_assign(&rhs.value.e_pow_j());
+        Bnext: Conj<Output = Bnext>,
+        Bnext: Mul<Self::VrhsAlloc, Output = Bnext>,
+        Bnext: Mul<Self::OutputGrad, Output = Bnext>;
+    (self, rhs) => move |grad| {
+        let grad = grad.conj() * rhs.value.e_pow_j();
         self.backward(grad.as_());
-        grad.mul_assign(&self.value.j());
-        rhs.backward(grad.as_());
-    }
-}
-
-macro_rules! cross_domain_one_param_op_impl {
-    (
-        $wrapper_trait_name:ident<Output = $output_type:ty> for $t:ty;
-        $trait_name:ident;
-        $fn_name:ident;
-        $op_name:expr;
-        $(where trait $($generic:ty $(| $($lgen:lifetime),+)?: $($bound:path)|*),*;)?
-        $(where fn $($generic_fn:ty $(| $($lgen_fn:lifetime),+)?: $($bound_fn:path)|*),*;)?
-        ($self:ident, $rhs:ident) => $backward_closure:expr
-    ) => {
-        /// Wrapper trait that allows an adaptive `B` parameter in the output `Variable`.
-        pub trait $wrapper_trait_name<'var, Rhs = Self> {
-            /// Scalar type `T` of the output `Variable`.
-            type OutputScalar;
-            /// `V` parameter of the output `Variable`.
-            type OutputValue;
-            /// `G` parameter of the output `Variable`.
-            type OutputGrad;
-            /// `B` parameter of the input `Variable`.
-            type Back;
-            /// Trait function generic over `Bnext`, the adaptive `B` parameter of the output `Variable`.
-            fn $fn_name<Bnext>(self, rhs: Rhs) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
-            where
-                Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
-                for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
-                $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?;
-        }
-        
-        impl<'var, T, V, G, B> $wrapper_trait_name<'var, $t> for Variable<'var, $t, V, G, B>
-        where
-            // Forward operation.
-            for<'a> &'a V: $trait_name<$t, Output = V::Alloc>,
-            
-            // Output variable gradient allocation.
-            V: AllocSameShape<$output_type>,
-            $output_type: Zero,
-
-            // Backward call on inputs in output backward closure.
-            G: for<'a> AddAssign<&'a B>,
-
-            // 'static bounds required by output backward closure.
-            T: 'var,
-            V: 'var,
-            G: 'var,
-            B: 'var,
-
-            // Additionnal bounds needed by either forward or
-            // backward passes
-            $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
-        {
-            type OutputScalar = $output_type;
-            type OutputValue = V::Alloc;
-            type OutputGrad = V::Alloc;
-            type Back = B;
-            fn $fn_name<Bnext>($self, $rhs: $t) -> Variable<'var, Self::OutputScalar, Self::OutputValue, Self::OutputGrad, Bnext>
-            where
-                Bnext: AllocSameShape<Complex<Self::OutputScalar>, Alloc = Self::Back>,
-                for<'a> &'a Bnext: TensorCast<Complex<Self::OutputScalar>, Output = Self::Back>,
-                $($($(for<$($lgen_fn),+>)? $generic_fn: $($bound_fn +)*),*)?
-            {
-                let value = $self.value.$fn_name($rhs);
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some($self.value.fill_same_shape(<$output_type>::ZERO))
-                    } else {
-                        None
-                    }
-                };
-
-                Variable(Rc::new(InternalVariable {
-                    value,
-                    grad: RefCell::new(grad),
-                    backward_op_name: $op_name,
-                    backward_closure: Box::new($backward_closure),
-                }), PhantomData)
-            }
-        }
-    };
-}
-
-cross_domain_one_param_op_impl! {
-    VariableAddJScalar<Output = Complex<T>> for T;
-    AddJ; add_j; "add_j_scalar_back";
-    where trait
-        T: Zero | One;
-    where fn
-        Bnext: ConjAssign | MulAssign<Self::OutputScalar>;
-    (self, rhs) => move |mut grad| {
-        grad.conj_assign();
-        self.backward(grad.as_());
-    }
-}
-
-cross_domain_one_param_op_impl! {
-    VariableMulEPowJScalar<Output = Complex<T>> for T;
-    MulEPowJ; mul_e_pow_j; "mul_e_pow_j_scalar_back";
-    where trait
-        T: Zero | One | EPowJ<Output = Complex<T>> | Copy,
-        &'a V | 'a: J<Output = V::Alloc>;
-    where fn
-        Bnext: ConjAssign,
-        Bnext | 'a: MulAssign<Self::OutputScalar>;
-    (self, rhs) => move |mut grad| {
-        grad.conj_assign();
-        grad.mul_assign(rhs.e_pow_j());
-        self.backward(grad.as_());
+        rhs.backward((grad * self.value.j()).as_());
     }
 }

@@ -17,16 +17,16 @@
 use super::alloc::{DynamicAlloc, StaticAlloc};
 use super::index::Index;
 use super::layout::{DynamicLayout, Layout};
-use super::shape::{BroadcastShape, PartialCopy, Same, Shape, StaticShape, TRUE, Shape1D};
+use super::shape::{BroadcastShape, PartialCopy, Same, Shape, Shape1D, StaticShape, TRUE};
 use super::strided_iterator::StridedIterator;
 use super::view::{BroadcastDynamicMut, BroadcastMut};
-use super::{Dynamic, Static, Strided, Tensor, AsRawSlice};
+use super::{AsRawSlice, Dynamic, Static, Strided, Tensor};
 use crate::ops::{MaxAssign, MinAssign};
 use crate::scalar_traits::*;
+use num_complex::{Complex32, Complex64};
 use std::convert::TryFrom;
-use std::ops::{AddAssign, MulAssign, Add};
+use std::ops::{AddAssign, MulAssign};
 use typenum::U1;
-use num_complex::{Complex64, Complex32};
 
 type BroadcastMutView<'a, Z, T, Sout: Shape, A> =
     Tensor<Static, Strided, Z, T, Sout, A, &'a mut [T], DynamicLayout<Sout::Len>>;

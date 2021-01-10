@@ -10,14 +10,6 @@ use std::ops::AddAssign;
 use std::ops::Deref;
 use std::rc::Rc;
 
-/// Create a new variable that retains its gradient if require_grad is true
-/// by moving the given tensor.
-pub trait New<V> {
-    /// Wraps `tensor` inside a variable that retains its grad
-    /// if `require_grad` is true.
-    fn new(tensor: V, require_grad: bool) -> Self;
-}
-
 /// Groups the value, "interior-mutable" gradient option
 /// and backpropagation closure as a sigle entity.
 ///
@@ -83,7 +75,7 @@ where
 
 impl<'a, T, V, G, B> Variable<'a, T, V, G, B>
 where
-    G: for<'b> AddAssign<&'b B>,
+    G: BackwardCompatible<B>,
 {
     /// Add given gradient to the retained gradient if needed and
     /// backpropagate using the closure.
@@ -98,17 +90,17 @@ where
     }
 }
 
-impl<'a, T, V, B> New<V> for Variable<'a, T, V, V::Alloc, B>
+impl<'a, T, V, B> From<V> for Variable<'a, T, V, V::Alloc, B>
 where
     T: Differentiable + Zero,
     V: AllocLike<Scalar = T>,
 {
-    fn new(value: V, require_grad: bool) -> Self {
+    fn from(value: V) -> Self {
         let grad = value.fill_like(T::ZERO);
         Variable(
             Rc::new(InternalVariable {
                 value: value,
-                grad: RefCell::new(if require_grad { Some(grad) } else { None }),
+                grad: RefCell::new(Some(grad)),
                 backward_op_name: "no_op",
                 backward_closure: Box::new(|_grad| ()),
             }),
@@ -122,3 +114,18 @@ impl<'a, T, V, G, B> Clone for Variable<'a, T, V, G, B> {
         Variable(Rc::clone(&self.0), PhantomData)
     }
 }
+
+pub unsafe trait BackwardCompatible<Rhs>: for<'a> AddAssign<&'a Rhs> {}
+
+unsafe impl<X, Y, Z, T, S, A, D, L, Xrhs, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs>
+    BackwardCompatible<Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>>
+    for Tensor<X, Y, Z, T, S, A, D, L>
+where
+    Self: for<'b> AddAssign<&'b Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>>,
+{
+}
+unsafe impl<X, Y, Z, T, S, A, D, L> BackwardCompatible<Tensor<X, Y, Z, T, S, A, D, L>> for T where
+    T: Copy + for<'a> AddAssign<&'a Tensor<X, Y, Z, T, S, A, D, L>>
+{
+}
+unsafe impl<T> BackwardCompatible<T> for T where T: Copy + for<'a> AddAssign<&'a T> {}

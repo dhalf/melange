@@ -798,6 +798,60 @@ where
     >>::Output;
 }
 
+/// Trait operator that inserts dimension S before the first axis.
+///
+/// This is useful because dimensions are stored in reverse order in
+/// the recursive `TArr` structure.
+///
+/// # Example
+/// ```
+/// use typenum::{U1, U2};
+/// use melange::tensor::shape::{Shape1D, Shape2D, StaticShape, Insert};
+///
+/// assert_eq!(<<Shape1D<U2> as Insert<U1>>::Output as StaticShape>::to_vec(), vec![1, 2]);
+/// ```
+pub unsafe trait Insert<S> {
+    /// Output type.
+    type Output;
+}
+
+unsafe impl<S> Insert<S> for ATerm {
+    type Output = TArr<S, ATerm>;
+}
+
+unsafe impl<S, A, Z> Insert<Z> for TArr<S, A>
+where
+    A: Insert<Z>,
+{
+    type Output = TArr<S, <A as Insert<Z>>::Output>;
+}
+
+/// Type operator that reverses the order of the axes in the implementor shape.
+///
+/// # Example
+/// ```
+/// use typenum::{U1, U2, U3, U4};
+/// use melange::tensor::shape::{Shape4D, StaticShape, TransposeShape};
+///
+/// assert_eq!(<<Shape4D<U1, U2, U3, U4> as TransposeShape>::Output as StaticShape>::to_vec(), vec![4, 3, 2, 1]);
+/// ```
+pub unsafe trait TransposeShape {
+    /// Output type.
+    type Output;
+}
+
+unsafe impl TransposeShape for ATerm {
+    type Output = ATerm;
+}
+
+unsafe impl<S, A> TransposeShape for TArr<S, A>
+where
+    A: TransposeShape,
+    <A as TransposeShape>::Output: Insert<S>,
+{
+    type Output = <<A as TransposeShape>::Output as Insert<S>>::Output;
+}
+
 /// 1D shape alias.
 pub type Shape1D<S0> = TArr<S0, ATerm>;
 /// 2D shape alias.

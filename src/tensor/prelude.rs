@@ -1,6 +1,7 @@
 //! Reexports commonly used features.
 
 pub use super::alloc::*;
+pub use super::elementwise_ops::TensorCast;
 pub use super::index::Index;
 pub use super::layout::Layout;
 pub use super::linear_algebra::*;
@@ -13,5 +14,3 @@ pub use super::{
     Strided, Tensor, Transposed,
 };
 pub use std::convert::TryFrom;
-pub use super::elementwise_ops::TensorCast;
-//pub use std::ops::{Add, Div, Mul, Rem, Sub};

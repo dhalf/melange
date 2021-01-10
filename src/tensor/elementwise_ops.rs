@@ -41,13 +41,14 @@
 use super::layout::Layout;
 use super::shape::{Same, Shape, TRUE};
 use super::strided_iterator::{StridedIterator, StridedIteratorMut};
+use super::tensor_traits::Owned;
 use crate::gat::{RefMutGat, StreamingIterator};
 use crate::ops::*;
+use crate::scalar_traits::{Cast, One};
 use crate::tensor::alloc::{AllocLike, AllocSameShape};
 use crate::tensor::{Dynamic, Static, Tensor};
 use num_complex::{Complex32, Complex64};
 use std::ops::*;
-use crate::scalar_traits::Cast;
 
 macro_rules! assert_shape_eq {
     ($lhs:expr, $rhs:expr) => {
@@ -61,9 +62,16 @@ macro_rules! assert_shape_eq {
     };
 }
 
-// --------------------
-// Binary inplace ops
-// --------------------
+// A: Any tensor
+// B: Owned tensor
+// C: Mutable tensor
+// @: any (functionnal) operator
+// @=: any in-place operator
+// K: any scalar type (or reference to a scalar type)
+
+// ---------------------
+// binary op (C @= &A)
+// ---------------------
 
 macro_rules! binary_inplace_op_impls {
     (
@@ -132,9 +140,9 @@ binary_inplace_op_impls! {
     RemEuclidAssign, rem_euclid_assign
 }
 
-// ---------------------------
-// one-parameter inplace ops
-// ---------------------------
+// --------------------------------
+// one param in-place op (C @= K)
+// --------------------------------
 
 macro_rules! one_param_inplace_op_impls {
     (
@@ -166,10 +174,8 @@ macro_rules! one_param_inplace_op_impls {
 
         impl<X, Y, Z, T, S, A, D, L> $trait<&isset_or_default!($($param_type)?)> for Tensor<X, Y, Z, T, S, A, D, L>
         where
-            for<'a> &'a mut Self: StridedIteratorMut<Item=RefMutGat<[T]>>,
-            T: $trait<isset_or_default!($($param_type)?)> + Copy + 'static,
-            S: Shape,
-            L: Layout<S::Len>,
+            T: Copy,
+            Self: $trait<isset_or_default!($($param_type)?)>,
         {
             fn $trait_fn(&mut self, rhs: &isset_or_default!($($param_type)?)) {
                 self.$trait_fn(*rhs);
@@ -202,9 +208,9 @@ one_param_inplace_op_impls! {
     LogAssign, log_assign
 }
 
-// ------------
-// inplace fn
-// ------------
+// --------------------
+// inplace fn (C @= )
+// --------------------
 
 macro_rules! inplace_fn_impls {
     (
@@ -267,9 +273,9 @@ inplace_fn_impls! {
     ZeroOut, zero_out
 }
 
-// ---------------------------
-// two-parameter inplace ops
-// ---------------------------
+// -----------------------------------------
+// two-parameter inplace ops (C @= K, K)
+// -----------------------------------------
 
 macro_rules! two_param_inplace_op_impls {
     (
@@ -297,6 +303,16 @@ macro_rules! two_param_inplace_op_impls {
                 }
             }
         }
+
+        impl<X, Y, Z, T, S, A, D, L> $trait<&isset_or_default!($($param_type0)?), &isset_or_default!($($param_type1)?)> for Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            T: Copy,
+            Self: $trait<isset_or_default!($($param_type0)?), isset_or_default!($($param_type1)?)>,
+        {
+            fn $trait_fn(&mut self, rhs0: &isset_or_default!($($param_type0)?), rhs1: &isset_or_default!($($param_type1)?)) {
+                self.$trait_fn(*rhs0, *rhs1);
+            }
+        }
     )*};
 }
 
@@ -304,9 +320,9 @@ two_param_inplace_op_impls! {
     MulAddAssign, mul_add_assign
 }
 
-// ---------------------
-// ternary inplace ops
-// ---------------------
+// -------------------------------------
+// ternary inplace ops (C @= &A, &A)
+// -------------------------------------
 
 macro_rules! ternary_inplace_op_impls {
     (
@@ -385,7 +401,9 @@ macro_rules! op_impls {
     (
         $($trait:ident, $trait_fn:ident, $inplace_trait:ident, $inplace_trait_fn:ident);*
     ) => {$(
-        impl<'a, X, Y, Z, T, S, A, D, L, Rhs> $trait<Rhs> for &'a Tensor<X, Y, Z, T, S, A, D, L>
+        // &A @ &A
+        // &A @ K
+        impl<X, Y, Z, T, S, A, D, L, Rhs> $trait<Rhs> for &Tensor<X, Y, Z, T, S, A, D, L>
         where
             Tensor<X, Y, Z, T, S, A, D, L>: AllocLike,
             <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc: $inplace_trait<Rhs>,
@@ -399,6 +417,39 @@ macro_rules! op_impls {
                 out.$inplace_trait_fn(rhs);
 
                 out
+            }
+        }
+
+        // B @ &A
+        // B @ K
+        impl<X, Y, Z, T, S, A, D, L, Rhs> $trait<Rhs> for Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            Self: Owned + $inplace_trait<Rhs>,
+        {
+            type Output = Self;
+            fn $trait_fn(
+                mut self,
+                rhs: Rhs,
+            ) -> Self::Output {
+                self.$inplace_trait_fn(rhs);
+
+                self
+            }
+        }
+
+        // B @ A
+        impl<X, Y, Z, T, S, A, D, L, Xrhs, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs> $trait<Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>> for Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            Self: Owned + for<'a> $inplace_trait<&'a Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>>,
+        {
+            type Output = Self;
+            fn $trait_fn(
+                mut self,
+                rhs: Tensor<Xrhs, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>,
+            ) -> Self::Output {
+                self.$inplace_trait_fn(&rhs);
+
+                self
             }
         }
     )*};
@@ -427,7 +478,8 @@ macro_rules! fn_impls {
     (
         $($trait:ident, $trait_fn:ident, $inplace_trait:ident, $inplace_trait_fn:ident);*
     ) => {$(
-        impl<'a, X, Y, Z, T, S, A, D, L> $trait for &'a Tensor<X, Y, Z, T, S, A, D, L>
+        // @&A
+        impl<X, Y, Z, T, S, A, D, L> $trait for &Tensor<X, Y, Z, T, S, A, D, L>
         where
             Tensor<X, Y, Z, T, S, A, D, L>: AllocLike,
             <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc: $inplace_trait,
@@ -438,6 +490,21 @@ macro_rules! fn_impls {
                 out.$inplace_trait_fn();
 
                 out
+            }
+        }
+
+        // @B
+        impl<X, Y, Z, T, S, A, D, L> $trait for Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            Self: Owned + $inplace_trait,
+        {
+            type Output = Self;
+            fn $trait_fn(
+                mut self,
+            ) -> Self::Output {
+                self.$inplace_trait_fn();
+
+                self
             }
         }
     )*};
@@ -478,11 +545,41 @@ fn_impls! {
     Conj, conj, ConjAssign, conj_assign
 }
 
+impl<X, Y, Z, T, S, A, D, L> Neg for &Tensor<X, Y, Z, T, S, A, D, L>
+where
+    Tensor<X, Y, Z, T, S, A, D, L>: AllocLike,
+    <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc: MulAssign<T>,
+    T: Neg<Output = T> + One,
+{
+    type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc;
+    fn neg(self) -> Self::Output {
+        let mut out = self.to_contiguous();
+        out.mul_assign(-T::ONE);
+
+        out
+    }
+}
+
+impl<X, Y, Z, T, S, A, D, L> Neg for Tensor<X, Y, Z, T, S, A, D, L>
+where
+    Self: Owned + MulAssign<T>,
+    T: Neg<Output = T> + One,
+{
+    type Output = Self;
+    fn neg(mut self) -> Self::Output {
+        self.mul_assign(-T::ONE);
+
+        self
+    }
+}
+
 macro_rules! ternary_op_impls {
     (
         $($trait:ident, $trait_fn:ident, $inplace_trait:ident, $inplace_trait_fn:ident);*
     ) => {$(
-        impl<'a, X, Y, Z, T, S, A, D, L, Rhs0, Rhs1> $trait<Rhs0, Rhs1> for &'a Tensor<X, Y, Z, T, S, A, D, L>
+        // &A @ &A, &A
+        // &A @ K, K
+        impl<X, Y, Z, T, S, A, D, L, Rhs0, Rhs1> $trait<Rhs0, Rhs1> for &Tensor<X, Y, Z, T, S, A, D, L>
         where
             Tensor<X, Y, Z, T, S, A, D, L>: AllocLike,
             <Tensor<X, Y, Z, T, S, A, D, L> as AllocLike>::Alloc: $inplace_trait<Rhs0, Rhs1>,
@@ -497,6 +594,41 @@ macro_rules! ternary_op_impls {
                 out.$inplace_trait_fn(rhs0, rhs1);
 
                 out
+            }
+        }
+
+        // B @ &A, &A
+        // B @ K, K
+        impl<X, Y, Z, T, S, A, D, L, Rhs0, Rhs1> $trait<Rhs0, Rhs1> for Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            Self: Owned + $inplace_trait<Rhs0, Rhs1>,
+        {
+            type Output = Self;
+            fn $trait_fn(
+                mut self,
+                rhs0: Rhs0,
+                rhs1: Rhs1,
+            ) -> Self::Output {
+                self.$inplace_trait_fn(rhs0, rhs1);
+
+                self
+            }
+        }
+
+        // B @ A, A
+        impl<X, Y, Z, T, S, A, D, L, Xrhs0, Yrhs0, Zrhs0, Srhs0, Arhs0, Drhs0, Lrhs0, Xrhs1, Yrhs1, Zrhs1, Srhs1, Arhs1, Drhs1, Lrhs1> $trait<Tensor<Xrhs0, Yrhs0, Zrhs0, T, Srhs0, Arhs0, Drhs0, Lrhs0>, Tensor<Xrhs1, Yrhs1, Zrhs1, T, Srhs1, Arhs1, Drhs1, Lrhs1>> for Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            for<'a, 'b> Self: Owned + $inplace_trait<&'a Tensor<Xrhs0, Yrhs0, Zrhs0, T, Srhs0, Arhs0, Drhs0, Lrhs0>, &'b Tensor<Xrhs1, Yrhs1, Zrhs1, T, Srhs1, Arhs1, Drhs1, Lrhs1>>,
+        {
+            type Output = Self;
+            fn $trait_fn(
+                mut self,
+                rhs0: Tensor<Xrhs0, Yrhs0, Zrhs0, T, Srhs0, Arhs0, Drhs0, Lrhs0>,
+                rhs1: Tensor<Xrhs1, Yrhs1, Zrhs1, T, Srhs1, Arhs1, Drhs1, Lrhs1>,
+            ) -> Self::Output {
+                self.$inplace_trait_fn(&rhs0, &rhs1);
+
+                self
             }
         }
     )*};
@@ -514,6 +646,7 @@ macro_rules! conversion_op_impls {
     (
         $($trait:ident, $trait_fn:ident);*
     ) => {$(
+        // @&A
         impl<'a, X, Y, Z, T, S, A, D, L> $trait for &'a Tensor<X, Y, Z, T, S, A, D, L>
         where
             T: $trait + Copy + 'static,
@@ -576,6 +709,7 @@ macro_rules! binary_conversion_op_impls {
             };
         }
 
+        // &A @ &A
         impl<'a, Y, Z, T, S, A, D, L, Yrhs, Zrhs, Arhs, Drhs, Lrhs> $trait<&Tensor<Static, Yrhs, Zrhs, T, S, Arhs, Drhs, Lrhs>> for &'a Tensor<Static, Y, Z, T, S, A, D, L>
         where
             Self: StridedIterator<Item=&'a [T]>,
@@ -594,6 +728,7 @@ macro_rules! binary_conversion_op_impls {
             }
         }
 
+        // &A @ &A
         impl<'a, Y, Z, T, S, A, D, L, Yrhs, Zrhs, Srhs, Arhs, Drhs, Lrhs> $trait<&Tensor<Dynamic, Yrhs, Zrhs, T, Srhs, Arhs, Drhs, Lrhs>> for &'a Tensor<Dynamic, Y, Z, T, S, A, D, L>
         where
             Self: StridedIterator<Item=&'a [T]>,
@@ -631,6 +766,7 @@ macro_rules! one_param_conversion_op_impls {
             () => { T };
         }
 
+        // &A @ K
         impl<'a, X, Y, Z, T, S, A, D, L> $trait<isset_or_default!($($param_type)?)> for &'a Tensor<X, Y, Z, T, S, A, D, L>
         where
             Self: StridedIterator<Item=&'a [T]>,
@@ -658,6 +794,17 @@ macro_rules! one_param_conversion_op_impls {
                 out
             }
         }
+
+        impl<X, Y, Z, T, S, A, D, L> $trait<&isset_or_default!($($param_type)?)> for &Tensor<X, Y, Z, T, S, A, D, L>
+        where
+            T: Copy,
+            Self: $trait<isset_or_default!($($param_type)?)>,
+        {
+            type Output = <Self as $trait<isset_or_default!($($param_type)?)>>::Output;
+            fn $trait_fn(self, rhs: &isset_or_default!($($param_type)?)) -> Self::Output {
+                self.$trait_fn(*rhs)
+            }
+        }
     )*};
 }
 
@@ -671,7 +818,7 @@ one_param_conversion_op_impls! {
 // -------
 
 /// Elementwise cast of a tensor.
-/// 
+///
 /// Cast all its elements into `U`.
 pub trait TensorCast<U> {
     /// Output type.
@@ -687,8 +834,9 @@ where
     S: Shape,
     L: Layout<S::Len>,
     Tensor<X, Y, Z, T, S, A, D, L>: AllocSameShape<U>,
-    for<'b> &'b mut <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<U>>::Alloc: StridedIteratorMut<Item=RefMutGat<[U]>>,
-    Self: StridedIterator<Item=&'a [T]>,
+    for<'b> &'b mut <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<U>>::Alloc:
+        StridedIteratorMut<Item = RefMutGat<[U]>>,
+    Self: StridedIterator<Item = &'a [T]>,
 {
     type Output = <Tensor<X, Y, Z, T, S, A, D, L> as AllocSameShape<U>>::Alloc;
     fn as_(self) -> Self::Output {
@@ -696,7 +844,9 @@ where
         let chunk_size = self.opt_chunk_size();
 
         {
-            let mut it = out.strided_iter_mut(chunk_size).streaming_zip(self.strided_iter(chunk_size));
+            let mut it = out
+                .strided_iter_mut(chunk_size)
+                .streaming_zip(self.strided_iter(chunk_size));
             while let Some((out_chunk, self_chunk)) = it.next() {
                 for (x, y) in out_chunk.iter_mut().zip(self_chunk.iter()) {
                     *x = y.as_();
@@ -707,3 +857,130 @@ where
         out
     }
 }
+
+// --------------
+// Reversed ops
+// --------------
+
+// NOTE: A generic impl would violate the orphan rule
+
+macro_rules! reversed_op_impls {
+    (
+        $(
+            $trait:ident for $t:ty, $trait_fn:ident
+        );*
+    ) => {$(
+        // K @ &A
+        impl<X, Y, Z, S, A, D, L> $trait<&Tensor<X, Y, Z, $t, S, A, D, L>> for $t
+        where
+            Tensor<X, Y, Z, $t, S, A, D, L>: AllocLike,
+            for<'a> &'a mut <Tensor<X, Y, Z, $t, S, A, D, L> as AllocLike>::Alloc: StridedIteratorMut<Item=RefMutGat<[$t]>>,
+            S: Shape,
+            L: Layout<S::Len>,
+        {
+            type Output = <Tensor<X, Y, Z, $t, S, A, D, L> as AllocLike>::Alloc;
+            fn $trait_fn(self, rhs: &Tensor<X, Y, Z, $t, S, A, D, L>) -> Self::Output {
+                let mut out = rhs.to_contiguous();
+                let chunk_size = rhs.num_elements();
+
+                {
+                    let mut it = out.strided_iter_mut(chunk_size);
+                    while let Some(chunk) = it.next() {
+                        for x in chunk.iter_mut() {
+                            *x = <$t as $trait<$t>>::$trait_fn(self, *x);
+                        }
+                    }
+                }
+
+                out
+            }
+        }
+
+        // &K @ &A
+        impl<X, Y, Z, S, A, D, L> $trait<&Tensor<X, Y, Z, $t, S, A, D, L>> for &$t
+        where
+            for<'a> $t: $trait<&'a Tensor<X, Y, Z, $t, S, A, D, L>, Output = <Tensor<X, Y, Z, $t, S, A, D, L> as AllocLike>::Alloc>,
+            Tensor<X, Y, Z, $t, S, A, D, L>: AllocLike,
+        {
+            type Output = <Tensor<X, Y, Z, $t, S, A, D, L> as AllocLike>::Alloc;
+            fn $trait_fn(
+                self,
+                rhs: &Tensor<X, Y, Z, $t, S, A, D, L>,
+            ) -> Self::Output {
+                <$t as $trait<&Tensor<X, Y, Z, $t, S, A, D, L>>>::$trait_fn(*self, rhs)
+            }
+        }
+
+        // K @ B
+        impl<X, Y, Z, S, A, D, L> $trait<Tensor<X, Y, Z, $t, S, A, D, L>> for $t
+        where
+            for<'a> &'a mut Tensor<X, Y, Z, $t, S, A, D, L>: StridedIteratorMut<Item=RefMutGat<[$t]>>,
+            S: Shape,
+            L: Layout<S::Len>,
+        {
+            type Output = Tensor<X, Y, Z, $t, S, A, D, L>;
+            fn $trait_fn(self, mut rhs: Tensor<X, Y, Z, $t, S, A, D, L>) -> Self::Output {
+                let chunk_size = rhs.opt_chunk_size();
+
+                {
+                    let mut it = rhs.strided_iter_mut(chunk_size);
+                    while let Some(chunk) = it.next() {
+                        for x in chunk.iter_mut() {
+                            *x = <$t as $trait<$t>>::$trait_fn(self, *x);
+                        }
+                    }
+                }
+
+                rhs
+            }
+        }
+
+        // &K @ B
+        impl<X, Y, Z, S, A, D, L> $trait<Tensor<X, Y, Z, $t, S, A, D, L>> for &$t
+        where
+            $t: $trait<Tensor<X, Y, Z, $t, S, A, D, L>>,
+        {
+            type Output = <$t as $trait<Tensor<X, Y, Z, $t, S, A, D, L>>>::Output;
+            fn $trait_fn(
+                self,
+                rhs: Tensor<X, Y, Z, $t, S, A, D, L>,
+            ) -> Self::Output {
+                <$t as $trait<Tensor<X, Y, Z, $t, S, A, D, L>>>::$trait_fn(*self, rhs)
+            }
+        }
+    )*};
+}
+
+macro_rules! reversed_op_impls_float_complex {
+    ($($t:ty)*) => {$(
+        reversed_op_impls! {
+            Add for $t, add;
+            Sub for $t, sub;
+            Mul for $t, mul;
+            Div for $t, div;
+            Rem for $t, rem;
+            Pow for $t, pow
+        }
+    )*};
+}
+
+reversed_op_impls_float_complex! { f64 f32 Complex64 Complex32 }
+
+macro_rules! reversed_op_impls_float {
+    ($($t:ty)*) => {$(
+        reversed_op_impls! {
+            Atan2 for $t, atan2;
+            Hypot for $t, hypot;
+            Copysign for $t, copysign;
+            DivEuclid for $t, div_euclid;
+            RemEuclid for $t, rem_euclid;
+            Max for $t, max;
+            Min for $t, min;
+            MaxMask for $t, max_mask;
+            MinMask for $t, min_mask;
+            Log for $t, log
+        }
+    )*};
+}
+
+reversed_op_impls_float! { f64 f32 }

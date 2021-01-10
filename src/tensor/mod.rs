@@ -47,6 +47,7 @@ pub mod shape;
 pub mod strided_iterator;
 #[doc(hidden)]
 pub mod tensor;
+pub mod tensor_traits;
 
 #[doc(inplace)]
 pub use tensor::view;
