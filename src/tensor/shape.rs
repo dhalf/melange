@@ -14,9 +14,9 @@
 
 use std::ops::*;
 use typenum::operator_aliases::*;
-use typenum::private::InternalMarker;
 use typenum::type_operators::*;
-use typenum::{ATerm, Bit, Equal, TArr, UInt, Unsigned, B0, B1, U0, U1};
+use typenum::private::InternalMarker;
+use typenum::{ATerm, Bit, TArr, UInt, Unsigned, B0, B1, U0, U1, Equal, Less};
 
 /// Utility function that computes the intrinsic strides of the given `shape`.
 ///
@@ -68,77 +68,57 @@ pub unsafe trait TRUE {}
 unsafe impl TRUE for B1 {}
 
 /// Zero-sized struct representing type-level dynamic dimension.
-///
-/// It implements type-level comparisons with type-level unsigned integers and
-/// is considered equal to all of them. This involves Dyn is compatible
-/// with any dimension.
-///
-/// # Examples
-///
-/// Considering the following function:
-/// ```no_run
-/// use typenum::{U1, IsEqual, Eq};
-/// use melange::tensor::shape::TRUE;
-///
-/// fn bar<D>(x: D)
-/// where
-///     D: IsEqual<U1>, // This bound is required by the following line
-///     Eq<D, U1>: TRUE // Constrains "D IsEqual U1" to hold (Output = B1)
-/// {
-///     // some code
-/// }
-/// ```
-///
-/// This compiles:
-/// ```no_run
-/// # use typenum::{U1, IsEqual, Eq};
-/// # use melange::tensor::shape::{Dyn, TRUE};
-/// # fn bar<D>(x: D)
-/// # where
-/// #     D: IsEqual<U1>, // This bound is required by the following line
-/// #     Eq<D, U1>: TRUE // Constrains "D IsEqual U1" to hold (Output = B1)
-/// # {
-/// #     // some code
-/// # }
-/// #
-/// let a = Dyn;
-/// bar(a);
-/// ```
-///
-/// While this doesn't:
-/// ```compile_fail
-/// # use typenum::{U1, U2, IsEqual, Eq};
-/// # use melange::tensor::shape::TRUE;
-/// # fn bar<D>(x: D)
-/// # where
-/// #     D: IsEqual<U1>, // This bound is required by the following line
-/// #     Eq<D, U1>: TRUE // Constrains "D IsEqual U1" to hold (Output = B1)
-/// # {
-/// #     // some code
-/// # }
-/// #
-/// let a = U2::new();
-/// bar(a);
-/// ```
+/// 
+/// Dyn can be compared with type-level integers, it is strictly
+/// smaller that all of them and thus only equal to itself.
 #[derive(Debug, PartialEq)]
 pub struct Dyn;
-impl<U> Cmp<U> for Dyn
-where
-    U: Dim,
-{
-    type Output = Equal;
-
-    #[inline]
-    fn compare<P: InternalMarker>(&self, _: &U) -> Self::Output {
-        Equal
-    }
-}
-impl<U, B> Cmp<Dyn> for UInt<U, B> {
+impl Cmp<Dyn> for Dyn {
     type Output = Equal;
 
     #[inline]
     fn compare<P: InternalMarker>(&self, _: &Dyn) -> Self::Output {
         Equal
+    }
+}
+impl<U, B> Cmp<Dyn> for UInt<U, B> {
+    type Output = Less;
+
+    #[inline]
+    fn compare<P: InternalMarker>(&self, _: &Dyn) -> Self::Output {
+        Less
+    }
+}
+impl<U, B> Cmp<UInt<U, B>> for Dyn {
+    type Output = Less;
+
+    #[inline]
+    fn compare<P: InternalMarker>(&self, _: &UInt<U, B>) -> Self::Output {
+        Less
+    }
+}
+impl Div<Dyn> for Dyn {
+    type Output = Dyn;
+
+    #[inline]
+    fn div(self, _: Dyn) -> Self::Output {
+        Dyn
+    }
+}
+impl<U, B> Div<UInt<U, B>> for Dyn {
+    type Output = Dyn;
+
+    #[inline]
+    fn div(self, _: UInt<U, B>) -> Self::Output {
+        Dyn
+    }
+}
+impl<U, B> Div<Dyn> for UInt<U, B> {
+    type Output = Dyn;
+
+    #[inline]
+    fn div(self, _: Dyn) -> Self::Output {
+        Dyn
     }
 }
 
@@ -398,10 +378,16 @@ where
 }
 
 /// Binary type operator that check the compatibility of two type-level
-/// shapes.
+/// shapes or two type-level dimensions.
 ///
-/// Outputs B1 if the implementor shape is compatible with Rhs
-/// i.e. all the dimensions on the respective axes are compatible.
+/// Outputs B1 if the `Self` is compatible with `Rhs`.
+/// 
+/// Dimensions are compatible if they are equal or
+/// at least one of them is [`Dyn`](Dyn).
+/// 
+/// Shapes are compatible if all their dimensions are.
+/// Note that this implies compatible shapes have the
+/// same length.
 ///
 /// # Examples
 /// Considering the following function and some type `Foo<T>`:
@@ -496,29 +482,49 @@ pub unsafe trait Same<Rhs> {
     type Output;
 }
 
+unsafe impl Same<Dyn> for Dyn {
+    type Output = B1;
+}
+
+unsafe impl<U, B> Same<Dyn> for UInt<U, B> {
+    type Output = B1;
+}
+
+unsafe impl<U, B> Same<UInt<U, B>> for Dyn {
+    type Output = B1;
+}
+
+unsafe impl<U, B, URhs, BRhs> Same<UInt<URhs, BRhs>> for UInt<U, B>
+where
+    Self: IsEqual<UInt<URhs, BRhs>>,
+{
+    type Output = Eq<Self, UInt<URhs, BRhs>>;
+}
+
 unsafe impl Same<ATerm> for ATerm {
     type Output = B1;
 }
 
 unsafe impl<S, A, SRhs, ARhs> Same<TArr<SRhs, ARhs>> for TArr<S, A>
 where
-    S: IsEqual<SRhs>,
+    S: Same<SRhs>,
     A: Same<ARhs>,
-    Eq<S, SRhs>: BitAnd<<A as Same<ARhs>>::Output>,
+    <S as Same<SRhs>>::Output: BitAnd<<A as Same<ARhs>>::Output>,
 {
-    type Output = And<Eq<S, SRhs>, <A as Same<ARhs>>::Output>;
+    type Output = And<<S as Same<SRhs>>::Output, <A as Same<ARhs>>::Output>;
 }
 
-/// Binary type operator that check whether two type-level shapes
-/// can be broadcasted.
+/// Binary type operator that check whether type-level shape
+/// `Self` can be broadcasted to `Rhs`.
 ///
 /// Outputs B1 if the implementor shape can be broadcasted to Rhs.
 /// Broadcasting is valid if for all axes in reverse order:
 /// * dimensions are equal ([`Dyn`](Dyn) is included but runtime check should be done)
-/// * one of the dimensions is U1
-/// * the axis only exist in the largest shape
+/// * `Self`'s dimension is U1
+/// * the axis only exist `Rhs`
 ///
-/// Note that this DOES NOT require both shapes to have the same length.
+/// Note that this DOES NOT require both shapes to have the same length:
+/// `Rhs` might be longer than `Self`.
 ///
 /// # Examples
 /// Considering the following function and some type `Foo<T>`:
@@ -624,14 +630,12 @@ unsafe impl<S, A> BroadcastShape<TArr<S, A>> for ATerm {
 unsafe impl<S, A, SRhs, ARhs> BroadcastShape<TArr<SRhs, ARhs>> for TArr<S, A>
 where
     S: IsEqual<SRhs> + IsEqual<U1>,
-    SRhs: IsEqual<U1>,
     Eq<S, SRhs>: BitOr<Eq<S, U1>>,
-    Or<Eq<S, SRhs>, Eq<S, U1>>: BitOr<Eq<SRhs, U1>>,
     A: BroadcastShape<ARhs>,
-    Or<Or<Eq<S, SRhs>, Eq<S, U1>>, Eq<SRhs, U1>>: BitAnd<<A as BroadcastShape<ARhs>>::Output>,
+    Or<Eq<S, SRhs>, Eq<S, U1>>: BitAnd<<A as BroadcastShape<ARhs>>::Output>,
 {
     type Output =
-        And<Or<Or<Eq<S, SRhs>, Eq<S, U1>>, Eq<SRhs, U1>>, <A as BroadcastShape<ARhs>>::Output>;
+        And<Or<Eq<S, SRhs>, Eq<S, U1>>, <A as BroadcastShape<ARhs>>::Output>;
 }
 
 /// Type operator that strides a dimension.
@@ -718,7 +722,7 @@ where
 /// shape with Rhs.
 ///
 /// Note that this requires both shapes to have the same length.
-/// The is just guaranteed to be `Shape` i.e. it can still be dynamic.
+/// The output is just guaranteed to be `Shape` i.e. it can still be dynamic.
 ///
 /// # Examples
 /// ```
@@ -746,6 +750,49 @@ where
     type Output = TArr<<S as StridedDim<SRhs>>::Output, <A as StridedShapeDyn<ARhs>>::Output>;
 }
 
+/// Type operator that computes upsampling strides.
+///
+/// Outputs the strides that need to be used on `Self`
+/// when upsampling `Rhs` into `Self`.
+/// 
+/// If a dimension in `Rhs` is `Dyn`, the corresponding
+/// dimension in `Self` must also be `Dyn`. This constraint
+/// is present because switching from a dynamic dimension in
+/// the input to a statically known dimension in the output
+/// will likely result in a panic at runtime.
+///
+/// Note that this requires both shapes to have the same length.
+///
+/// # Examples
+/// ```
+/// use typenum::{U2, U4, Unsigned};
+/// use melange::tensor::shape::{Shape2D, UpsamplingStrides, Shape, Dyn};
+///
+/// // It works because Dyn can be equal to 42!
+/// assert!(<<Shape2D<Dyn, U4> as UpsamplingStrides<Shape2D<Dyn, U2>>>::Output as Shape>::runtime_compat(&[42, 2]));
+/// ```
+pub unsafe trait UpsamplingStrides<Rhs> {
+    /// Output type.
+    type Output: Shape;
+}
+
+unsafe impl UpsamplingStrides<ATerm> for ATerm {
+    type Output = ATerm;
+}
+
+unsafe impl<S, A, SRhs, ARhs> UpsamplingStrides<TArr<SRhs, ARhs>> for TArr<S, A>
+where
+    S: IsNotEqual<Dyn> + Div<SRhs>,
+    SRhs: IsEqual<Dyn>,
+    NotEq<S, Dyn>: BitAnd<Eq<SRhs, Dyn>>,
+    And<NotEq<S, Dyn>, Eq<SRhs, Dyn>>: IsEqual<B0>,
+    Eq<And<NotEq<S, Dyn>, Eq<SRhs, Dyn>>, B0>: TRUE,
+    A: UpsamplingStrides<ARhs>,
+    TArr<Quot<S, SRhs>, <A as UpsamplingStrides<ARhs>>::Output>: Shape,
+{
+    type Output = TArr<Quot<S, SRhs>, <A as UpsamplingStrides<ARhs>>::Output>;
+}
+
 /// Conditionnal trait operator.
 ///
 /// This reproduces a if/else block at the type level:
@@ -762,40 +809,6 @@ impl<T, Else> If<T, Else> for B1 {
 
 impl<T, Else> If<T, Else> for B0 {
     type Output = Else;
-}
-
-/// Trait operator that replaces the dimension of the axis
-/// having the (0-starting) index Ax (a type-level unsigned integer)
-/// with U1.
-///
-/// # Example
-/// ```
-/// use typenum::{U0, U2};
-/// use melange::tensor::shape::{Shape2D, StaticShape, Reduction};
-///
-/// assert_eq!(<<Shape2D<U2, U2> as Reduction<U0>>::Output as StaticShape>::to_vec(), vec![1, 2]);
-/// ```
-pub trait Reduction<Ax> {
-    /// Output type.
-    type Output;
-}
-
-impl<Ax> Reduction<Ax> for ATerm {
-    type Output = ATerm;
-}
-
-impl<Ax, D, Ar> Reduction<Ax> for TArr<D, Ar>
-where
-    Self: Len,
-    Length<Self>: Sub<B1>,
-    Ax: IsEqual<Sub1<Length<Self>>>,
-    Ar: Reduction<Ax>,
-    Eq<Ax, Sub1<Length<Self>>>: If<TArr<U1, Ar>, TArr<D, <Ar as Reduction<Ax>>::Output>>,
-{
-    type Output = <Eq<Ax, Sub1<Length<Self>>> as If<
-        TArr<U1, Ar>,
-        TArr<D, <Ar as Reduction<Ax>>::Output>,
-    >>::Output;
 }
 
 /// Trait operator that inserts dimension S before the first axis.
@@ -824,6 +837,34 @@ where
     A: Insert<Z>,
 {
     type Output = TArr<S, <A as Insert<Z>>::Output>;
+}
+
+/// Trait operator that removes the first axis.
+///
+/// This is useful because dimensions are stored in reverse order in
+/// the recursive `TArr` structure.
+///
+/// # Example
+/// ```
+/// use typenum::{U1, U2};
+/// use melange::tensor::shape::{Shape1D, Shape2D, StaticShape, RemoveFirst};
+///
+/// assert_eq!(<<Shape2D<U1, U2> as RemoveFirst>::Output as StaticShape>::to_vec(), vec![2]);
+/// ```
+pub unsafe trait RemoveFirst {
+    /// Output type.
+    type Output;
+}
+
+unsafe impl<S> RemoveFirst for TArr<S, ATerm> {
+    type Output = ATerm;
+}
+
+unsafe impl<S, A> RemoveFirst for TArr<S, A>
+where
+    A: RemoveFirst,
+{
+    type Output = TArr<S, <A as RemoveFirst>::Output>;
 }
 
 /// Type operator that reverses the order of the axes in the implementor shape.

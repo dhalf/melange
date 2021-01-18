@@ -149,28 +149,6 @@ mod tests {
         assert_eq!(a.grad().unwrap(), d);
     }
 
-    // #[test]
-    // fn backprop_broadcast() {
-    //     use crate::backprop::view::VariableBroadcast;
-    //     let a: StaticTensor<f64, Shape2D<U2, U2>> =
-    //         Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
-    //     let b: StaticTensor<f64, Shape2D<U1, U2>> =
-    //         Tensor::try_from(vec![1.0, 1.0]).unwrap();
-
-    //     let g: StaticTensor<f64, Shape2D<U2, U2>> =
-    //         Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
-
-    //     let a = Variable::new(a, true);
-    //     let b = Variable::new(b, true);
-
-    //     let c = a + b.broadcast();
-    //     c.backward(g);
-
-    //     let d: StaticTensor<f64, Shape2D<U1, U2>> =
-    //         Tensor::try_from(vec![2.0, 2.0]).unwrap();
-    //     assert_eq!(b.grad().unwrap(), d);
-    // }
-
     #[test]
     fn scalar_backprop() {
         let a = Variable::from(1.0_f64);
@@ -209,6 +187,50 @@ mod tests {
             Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
         assert_eq!(a.grad().unwrap(), d);
         assert_eq!(b.grad().unwrap(), 4.0);
+    }
+
+    #[test]
+    fn backprop_broadcast() {
+        use crate::backprop::view::VariableBroadcast;
+        let a: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 0.0, 0.0, 1.0]).unwrap();
+        let b: StaticTensor<f64, Shape2D<U1, U2>> =
+            Tensor::try_from(vec![1.0, 1.0]).unwrap();
+
+        let g: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+
+        let a = Variable::from(a);
+        let b = Variable::from(b);
+
+        let c = a + b.broadcast();
+        c.backward(g);
+
+        let d: StaticTensor<f64, Shape2D<U1, U2>> =
+            Tensor::try_from(vec![2.0, 2.0]).unwrap();
+        assert_eq!(b.grad().unwrap(), d);
+    }
+
+    #[test]
+    fn backprop_transpose() {
+        use crate::backprop::view::VariableTranspose;
+        let a: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, -1.0, 0.0, 1.0]).unwrap();
+        let b: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 1.0, 2.0, 2.0]).unwrap();
+
+        let g: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 1.0, 1.0, 1.0]).unwrap();
+
+        let a = Variable::from(a);
+        let b = Variable::from(b);
+
+        let c = Variable::clone(&a).transpose() * b;
+        c.backward(g);
+
+        let d: StaticTensor<f64, Shape2D<U2, U2>> =
+            Tensor::try_from(vec![1.0, 2.0, 1.0, 2.0]).unwrap();
+        assert_eq!(a.grad().unwrap(), d);
     }
 }
 

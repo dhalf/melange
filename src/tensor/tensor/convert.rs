@@ -1,11 +1,11 @@
 use super::*;
 use crate::tensor::index::Index;
 use crate::tensor::layout::{DynamicLayout, StaticLayout};
-use crate::tensor::shape::{intrinsic_strides_in_place, Reduction, StaticShape};
+use crate::tensor::shape::{intrinsic_strides_in_place, StaticShape, RemoveFirst};
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind};
 use std::marker::PhantomData;
-use typenum::{Unsigned, U0};
+use typenum::Unsigned;
 
 impl<Y, Z, T, S> TryFrom<Vec<T>>
     for Tensor<Static, Y, Z, T, S, DefaultAllocator, Vec<T>, StaticLayout<S>>
@@ -36,19 +36,15 @@ where
 impl<Y, Z, T, S> TryFrom<Vec<T>>
     for Tensor<Dynamic, Y, Z, T, S, DefaultAllocator, Vec<T>, DynamicLayout<S::Len>>
 where
-    S: Reduction<U0> + Shape,
-    <S as Reduction<U0>>::Output: StaticShape,
+    S: RemoveFirst + Shape,
+    <S as RemoveFirst>::Output: StaticShape,
 {
     type Error = Error;
     fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
         let len = value.len();
-        if len % <<S as Reduction<U0>>::Output as StaticShape>::NumElements::USIZE == 0 {
-            let mut shape = <S as Reduction<U0>>::Output::to_vec();
-            if shape.len() > 0 {
-                shape[0] = len / <<S as Reduction<U0>>::Output as StaticShape>::NumElements::USIZE;
-            } else {
-                shape.push(len / <<S as Reduction<U0>>::Output as StaticShape>::NumElements::USIZE);
-            }
+        if len % <<S as RemoveFirst>::Output as StaticShape>::NumElements::USIZE == 0 {
+            let mut shape = <S as RemoveFirst>::Output::to_vec();
+            shape.insert(0, len / <<S as RemoveFirst>::Output as StaticShape>::NumElements::USIZE);
             Ok(Tensor {
                 data: value,
                 layout: DynamicLayout {
@@ -64,7 +60,7 @@ where
                 ErrorKind::InvalidData,
                 format!(
                     "Expected a vector having a length that is a multiple of {}, got {}.",
-                    <<S as Reduction<U0>>::Output as StaticShape>::NumElements::USIZE,
+                    <<S as RemoveFirst>::Output as StaticShape>::NumElements::USIZE,
                     len
                 ),
             ))

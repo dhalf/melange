@@ -88,11 +88,7 @@ where
         // Buffer overflow guard
         assert!(
             self.offset + self.chunk_size <= self.len,
-            "Buffer overflow detected in StridedIter. Aborting! {:?} {:?} {:?} {:?}",
-            self.offset,
-            self.chunk_size,
-            self.len,
-            self.dead,
+            "Buffer overflow detected in StridedIter. Aborting!",
         );
 
         let chunk = unsafe {

@@ -104,10 +104,11 @@ where
             .rev()
         {
             if *digit + step_size >= *bound {
+                self.offset -= *digit * step_size * stride;
                 *digit = 0;
             } else {
-                *digit += step_size;
                 self.offset += step_size * stride;
+                *digit += step_size;
                 return Some(chunk);
             }
         }

@@ -8,7 +8,7 @@ use crate::tensor::index::Index;
 use crate::tensor::layout::{DynamicLayout, Layout, StaticLayout};
 use crate::tensor::shape::{
     intrinsic_strides_in_place, BroadcastShape, Same, StaticShape, StridedShape, StridedShapeDyn,
-    TRUE,
+    TRUE, TransposeShape,
 };
 use std::convert::TryFrom;
 use std::marker::PhantomData;
@@ -141,7 +141,7 @@ pub trait Stride<'a, Strides> {
 }
 
 /// Mutable version of [`Stride`](Stride) trait.
-pub trait StrideMut<'a, Sout> {
+pub trait StrideMut<'a, Strides> {
     /// Output type.
     type Output;
 
@@ -685,11 +685,11 @@ macro_rules! transpose_impl {
         impl<'a, X, Y, Z, T, S, A, D, L> $trait_name<'a> for Tensor<X, Y, Z, T, S, A, D, L>
         where
             T: 'static,
-            S: Shape,
+            S: Shape + TransposeShape,
             D: $bound<Target = [T]>,
             L: Layout<S::Len>,
         {
-            type Output = Tensor<X, Strided, Transposed, T, S, A, &'a $( $mut_ )? [T], DynamicLayout<S::Len>>;
+            type Output = Tensor<X, Strided, Transposed, T, <S as TransposeShape>::Output, A, &'a $( $mut_ )? [T], DynamicLayout<S::Len>>;
             fn $fn_name(&'a $( $mut_ )? self) -> Self::Output {
                 let shape: Vec<_> = Vec::from(self.shape()).into_iter().rev().collect();
                 let strides: Vec<_> = Vec::from(self.strides()).into_iter().rev().collect();
