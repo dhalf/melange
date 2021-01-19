@@ -48,6 +48,11 @@ where
     }
 
     #[inline]
+    fn offset(&self) -> Index<S::Len> {
+        Index::try_from(vec![0; S::Len::USIZE]).unwrap()
+    }
+
+    #[inline]
     fn num_elements(&self) -> usize {
         S::NumElements::USIZE
     }

@@ -30,6 +30,7 @@ pub struct StridedIterMut<'a, T: 'a, U> {
     bounds: Index<U>,
     strides: Index<U>,
     step_sizes: Index<U>,
+    initial_state: Index<U>,
     state: Index<U>,
     chunk_size: usize,
     offset: usize,
@@ -64,9 +65,10 @@ where
             bounds: layout.shape(),
             strides: layout.strides(),
             step_sizes,
-            state: Index::try_from(vec![0; U::USIZE]).unwrap(),
+            initial_state: Index::try_from(layout.offset()).unwrap(),
+            state: Index::try_from(layout.offset()).unwrap(),
             chunk_size: chunk_size / step, // Chunks must match innermost axes.
-            offset: 0,
+            offset: layout.linear_index(&layout.offset()),
             dead: false,
             _phantoms: PhantomData,
         }
@@ -95,17 +97,18 @@ where
             std::slice::from_raw_parts_mut(data, self.chunk_size)
         };
 
-        for (((digit, step_size), bound), stride) in self
+        for ((((digit, step_size), bound), stride), initial_digit) in self
             .state
             .iter_mut()
             .zip(self.step_sizes.iter())
             .zip(self.bounds.iter())
             .zip(self.strides.iter())
+            .zip(self.initial_state.iter())
             .rev()
         {
             if *digit + step_size >= *bound {
-                self.offset -= *digit * step_size * stride;
-                *digit = 0;
+                self.offset -= (*digit - *initial_digit) * step_size * stride;
+                *digit = *initial_digit;
             } else {
                 self.offset += step_size * stride;
                 *digit += step_size;

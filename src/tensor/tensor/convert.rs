@@ -50,6 +50,7 @@ where
                 layout: DynamicLayout {
                     shape: Index::try_from(shape.clone()).unwrap(),
                     strides: Index::try_from(intrinsic_strides_in_place(shape)).unwrap(),
+                    offset: Index::try_from(vec![0; S::Len::USIZE]).unwrap(),
                     num_elements: len,
                     opt_chunk_size: len,
                 },

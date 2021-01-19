@@ -16,7 +16,7 @@ use std::ops::*;
 use typenum::operator_aliases::*;
 use typenum::type_operators::*;
 use typenum::private::InternalMarker;
-use typenum::{ATerm, Bit, TArr, UInt, Unsigned, B0, B1, U0, U1, Equal, Less};
+use typenum::{ATerm, Bit, TArr, UInt, Unsigned, B0, B1, U0, U1, Equal, Less, UTerm};
 
 /// Utility function that computes the intrinsic strides of the given `shape`.
 ///
@@ -69,8 +69,18 @@ unsafe impl TRUE for B1 {}
 
 /// Zero-sized struct representing type-level dynamic dimension.
 /// 
-/// Dyn can be compared with type-level integers, it is strictly
-/// smaller that all of them and thus only equal to itself.
+/// `Dyn` can be compared with type-level integers, it is strictly
+/// smaller that all of them and thus only equal to itself. This
+/// is a security driven design choice that prevents static level
+/// coercions i.e. allowing a `Dyn` in the input to become a static
+/// dimension in the output. Being smaller eases the definition of some
+/// static checks such as whether some shape fits into another useful
+/// for subviewsof tensors: no static dimension can fit in `Dyn`
+/// (coercion prevented) but `Dyn` can bit in any type-level dimension.
+/// 
+/// `Dyn` also implements basic ops (at type-level). It is infectious
+/// as any type-level op involving `Dyn` results in `Dyn`. This property
+/// as well constitutes a security guarantee.
 #[derive(Debug, PartialEq)]
 pub struct Dyn;
 impl Cmp<Dyn> for Dyn {
@@ -97,29 +107,42 @@ impl<U, B> Cmp<UInt<U, B>> for Dyn {
         Less
     }
 }
-impl Div<Dyn> for Dyn {
-    type Output = Dyn;
 
-    #[inline]
-    fn div(self, _: Dyn) -> Self::Output {
-        Dyn
-    }
+macro_rules! ops_impl_dyn {
+    ($($trait:ident, $fn:ident);*) => {$(
+        impl $trait<Dyn> for Dyn {
+            type Output = Dyn;
+        
+            #[inline]
+            fn $fn(self, _: Dyn) -> Self::Output {
+                Dyn
+            }
+        }
+        impl<U, B> $trait<UInt<U, B>> for Dyn {
+            type Output = Dyn;
+        
+            #[inline]
+            fn $fn(self, _: UInt<U, B>) -> Self::Output {
+                Dyn
+            }
+        }
+        impl<U, B> $trait<Dyn> for UInt<U, B> {
+            type Output = Dyn;
+        
+            #[inline]
+            fn $fn(self, _: Dyn) -> Self::Output {
+                Dyn
+            }
+        }
+    )*};
 }
-impl<U, B> Div<UInt<U, B>> for Dyn {
-    type Output = Dyn;
 
-    #[inline]
-    fn div(self, _: UInt<U, B>) -> Self::Output {
-        Dyn
-    }
-}
-impl<U, B> Div<Dyn> for UInt<U, B> {
-    type Output = Dyn;
-
-    #[inline]
-    fn div(self, _: Dyn) -> Self::Output {
-        Dyn
-    }
+ops_impl_dyn! {
+    Add, add;
+    Sub, sub;
+    Mul, mul;
+    Div, div;
+    Rem, rem
 }
 
 /// Marker trait that provides a runtime equality check function
@@ -162,6 +185,12 @@ where
     }
 }
 
+unsafe impl Dim for UTerm {
+    fn runtime_eq(dim: usize) -> bool {
+        dim == 0
+    }
+}
+
 unsafe impl Dim for Dyn {
     fn runtime_eq(_dim: usize) -> bool {
         true
@@ -179,6 +208,7 @@ where
     B: Bit,
 {
 }
+unsafe impl StaticDim for UTerm {}
 
 /// Marker trait that provides basic ways to interact with type-level shapes.
 ///
@@ -377,7 +407,7 @@ where
     }
 }
 
-/// Binary type operator that check the compatibility of two type-level
+/// Binary type operator that checks the compatibility of two type-level
 /// shapes or two type-level dimensions.
 ///
 /// Outputs B1 if the `Self` is compatible with `Rhs`.
@@ -417,18 +447,16 @@ where
 ///
 /// This compiles:
 /// ```no_run
-/// use typenum::{U1, TArr};
+/// use typenum::U1;
 /// use melange::tensor::shape::Shape2D;
 /// # use melange::tensor::shape::{Same, TRUE};
 /// # use std::marker::PhantomData;
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
 /// # where
-/// #     S: Same<Z>, // This bound is required by the following line
-/// #     <S as Same<Z>>::Output: TRUE // Constrains "S Same Z" to hold (Output = B1)
-/// # {
-/// #     // some code
-/// # }
+/// #     S: Same<Z>,
+/// #     <S as Same<Z>>::Output: TRUE
+/// # {}
 /// #
 /// # struct Foo<T> {
 /// #     _phantoms: PhantomData<T>,
@@ -455,11 +483,9 @@ where
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
 /// # where
-/// #     S: Same<Z>, // This bound is required by the following line
-/// #     <S as Same<Z>>::Output: TRUE // Constrains "S Same Z" to hold (Output = B1)
-/// # {
-/// #     // some code
-/// # }
+/// #     S: Same<Z>,
+/// #     <S as Same<Z>>::Output: TRUE
+/// # {}
 /// #
 /// # struct Foo<T> {
 /// #     _phantoms: PhantomData<T>,
@@ -490,41 +516,187 @@ unsafe impl<U, B> Same<Dyn> for UInt<U, B> {
     type Output = B1;
 }
 
+unsafe impl Same<Dyn> for UTerm {
+    type Output = B1;
+}
+
 unsafe impl<U, B> Same<UInt<U, B>> for Dyn {
     type Output = B1;
 }
 
-unsafe impl<U, B, URhs, BRhs> Same<UInt<URhs, BRhs>> for UInt<U, B>
+unsafe impl Same<UTerm> for Dyn {
+    type Output = B1;
+}
+
+unsafe impl<U, B, Urhs, Brhs> Same<UInt<Urhs, Brhs>> for UInt<U, B>
 where
-    Self: IsEqual<UInt<URhs, BRhs>>,
+    Self: IsEqual<UInt<Urhs, Brhs>>,
 {
-    type Output = Eq<Self, UInt<URhs, BRhs>>;
+    type Output = Eq<Self, UInt<Urhs, Brhs>>;
+}
+
+unsafe impl<U, B> Same<UTerm> for UInt<U, B>
+where
+    Self: IsEqual<UTerm>,
+{
+    type Output = Eq<Self, UTerm>;
+}
+
+unsafe impl<Urhs, Brhs> Same<UInt<Urhs, Brhs>> for UTerm
+where
+    Self: IsEqual<UInt<Urhs, Brhs>>,
+{
+    type Output = Eq<Self, UInt<Urhs, Brhs>>;
+}
+
+unsafe impl Same<UTerm> for UTerm {
+    type Output = B1;
 }
 
 unsafe impl Same<ATerm> for ATerm {
     type Output = B1;
 }
 
-unsafe impl<S, A, SRhs, ARhs> Same<TArr<SRhs, ARhs>> for TArr<S, A>
+unsafe impl<D, A, Drhs, Arhs> Same<TArr<Drhs, Arhs>> for TArr<D, A>
 where
-    S: Same<SRhs>,
-    A: Same<ARhs>,
-    <S as Same<SRhs>>::Output: BitAnd<<A as Same<ARhs>>::Output>,
+    D: Same<Drhs>,
+    A: Same<Arhs>,
+    <D as Same<Drhs>>::Output: BitAnd<<A as Same<Arhs>>::Output>,
 {
-    type Output = And<<S as Same<SRhs>>::Output, <A as Same<ARhs>>::Output>;
+    type Output = And<<D as Same<Drhs>>::Output, <A as Same<Arhs>>::Output>;
+}
+
+/// Binary type operator that checks whether a block of
+/// shape `Sout` can fit in a block of shape `Self` at
+/// position `Offset`.
+///
+/// Outputs B1 if it fits.
+/// 
+/// Note that due to `Dyn` being smaller than all type-level
+/// dimensions and infectious, an axis with a `Dyn` offset
+/// or a `Dyn` output shape (`Sout`) will always fit. Conversely,
+/// only an axis with a `Dyn` offset or a `Dyn` output shape (`Sout`)
+/// will fit in a `Dyn` input shape (`Self`). This maintains
+/// the infectious behaviour of `Dyn` in the output shape (`Sout`)
+/// and prevents likely panics when a `Dyn` in the input shape
+/// (`Self`) becomes a a static dim in the output shape (`Sout`).
+/// 
+/// # Examples
+/// Considering the following function and some type `Foo<T>`:
+/// ```no_run
+/// use melange::tensor::shape::{Fit, TRUE};
+/// # use std::marker::PhantomData;
+/// # struct Foo<T> {
+/// #     _phantoms: PhantomData<T>,
+/// # }
+/// #
+/// # impl<T> Foo<T> {
+/// #     fn new() -> Self {
+/// #         Foo {
+/// #             _phantoms: PhantomData,
+/// #         }
+/// #     }
+/// # }
+///
+/// fn bar<Sin, Sout, Offset>(a: Foo<Sin>, b: Foo<Sout>, c: Foo<Offset>)
+/// where
+///     Sin: Fit<Offset, Sout>, // This bound is required by the following line
+///     <Sin as Fit<Offset, Sout>>::Output: TRUE // Constrains "Sout + Offset < Sin" to hold (Output = B1)
+/// {
+///     // some code
+/// }
+/// ```
+///
+/// This compiles:
+/// ```no_run
+/// use typenum::{U1, U2, U3};
+/// use melange::tensor::shape::Shape2D;
+/// # use melange::tensor::shape::{Fit, TRUE};
+/// # use std::marker::PhantomData;
+/// #
+/// # fn bar<Sin, Sout, Offset>(a: Foo<Sin>, b: Foo<Sout>, c: Foo<Offset>)
+/// # where
+/// #     Sin: Fit<Offset, Sout>,
+/// #     <Sin as Fit<Offset, Sout>>::Output: TRUE
+/// # {}
+/// #
+/// # struct Foo<T> {
+/// #     _phantoms: PhantomData<T>,
+/// # }
+/// #
+/// # impl<T> Foo<T> {
+/// #     fn new() -> Self {
+/// #         Foo {
+/// #             _phantoms: PhantomData,
+/// #         }
+/// #     }
+/// # }
+///
+/// let sin: Foo<Shape2D<U3, U3>> = Foo::new();
+/// let sout: Foo<Shape2D<U2, U2>> = Foo::new();
+/// let offset: Foo<Shape2D<U1, U1>> = Foo::new();
+/// bar(sin, sout, offset);
+/// ```
+/// While this doesn't:
+/// ```compile_fail
+/// use typenum::{U1, U3, U10};
+/// use melange::tensor::shape::Shape2D;
+/// # use melange::tensor::shape::{Fit, TRUE};
+/// # use std::marker::PhantomData;
+/// #
+/// # fn bar<Sin, Sout, Offset>(a: Foo<Sin>, b: Foo<Sout>, c: Foo<Offset>)
+/// # where
+/// #     Sin: Fit<Offset, Sout>,
+/// #     <Sin as Fit<Offset, Sout>>::Output: TRUE
+/// # {}
+/// #
+/// # struct Foo<T> {
+/// #     _phantoms: PhantomData<T>,
+/// # }
+/// #
+/// # impl<T> Foo<T> {
+/// #     fn new() -> Self {
+/// #         Foo {
+/// #             _phantoms: PhantomData,
+/// #         }
+/// #     }
+/// # }
+///
+/// let sin: Foo<Shape2D<U3, U3>> = Foo::new();
+/// let sout: Foo<Shape2D<U10, U10>> = Foo::new();
+/// let offset: Foo<Shape2D<U1, U1>> = Foo::new();
+/// bar(sin, sout, offset);
+/// ```
+pub unsafe trait Fit<Offset, Sout> {
+    /// Output type.
+    type Output;
+}
+
+unsafe impl Fit<ATerm, ATerm> for ATerm {
+    type Output = B1;
+}
+
+unsafe impl<Din, Ain, Doffset, Aoffset, Dout, Aout> Fit<TArr<Doffset, Aoffset>, TArr<Dout, Aout>> for TArr<Din, Ain>
+where
+    Dout: Add<Doffset>,
+    Sum<Dout, Doffset>: IsLessOrEqual<Din>,
+    Ain: Fit<Aoffset, Aout>,
+    LeEq<Sum<Dout, Doffset>, Din>: BitAnd<<Ain as Fit<Aoffset, Aout>>::Output>,
+{
+    type Output = And<LeEq<Sum<Dout, Doffset>, Din>, <Ain as Fit<Aoffset, Aout>>::Output>;
 }
 
 /// Binary type operator that check whether type-level shape
-/// `Self` can be broadcasted to `Rhs`.
+/// `Self` can be broadcasted to `Sout`.
 ///
 /// Outputs B1 if the implementor shape can be broadcasted to Rhs.
 /// Broadcasting is valid if for all axes in reverse order:
 /// * dimensions are equal ([`Dyn`](Dyn) is included but runtime check should be done)
 /// * `Self`'s dimension is U1
-/// * the axis only exist `Rhs`
+/// * the axis only exist `Sout`
 ///
 /// Note that this DOES NOT require both shapes to have the same length:
-/// `Rhs` might be longer than `Self`.
+/// `Sout` might be longer than `Self`.
 ///
 /// # Examples
 /// Considering the following function and some type `Foo<T>`:
@@ -554,18 +726,16 @@ where
 ///
 /// This compiles:
 /// ```no_run
-/// use typenum::{U1, U2, U3, U4, TArr};
+/// use typenum::{U1, U2, U3, U4};
 /// use melange::tensor::shape::{Shape3D, Shape4D};
 /// # use melange::tensor::shape::{BroadcastShape, TRUE};
 /// # use std::marker::PhantomData;
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
 /// # where
-/// #     S: BroadcastShape<Z>, // This bound is required by the following line
-/// #     <S as BroadcastShape<Z>>::Output: TRUE // Constrains "S BroadcastShape Z" to hold (Output = B1)
-/// # {
-/// #     // some code
-/// # }
+/// #     S: BroadcastShape<Z>,
+/// #     <S as BroadcastShape<Z>>::Output: TRUE
+/// # {}
 /// #
 /// # struct Foo<T> {
 /// #     _phantoms: PhantomData<T>,
@@ -592,11 +762,9 @@ where
 /// #
 /// # fn bar<S, Z>(a: Foo<S>, b: Foo<Z>)
 /// # where
-/// #     S: BroadcastShape<Z>, // This bound is required by the following line
-/// #     <S as BroadcastShape<Z>>::Output: TRUE // Constrains "S BroadcastShape Z" to hold (Output = B1)
-/// # {
-/// #     // some code
-/// # }
+/// #     S: BroadcastShape<Z>,
+/// #     <S as BroadcastShape<Z>>::Output: TRUE
+/// # {}
 /// #
 /// # struct Foo<T> {
 /// #     _phantoms: PhantomData<T>,
@@ -614,7 +782,7 @@ where
 /// let b: Foo<Shape2D<U3, U3>> = Foo::new();
 /// bar(a, b);
 /// ```
-pub unsafe trait BroadcastShape<Rhs> {
+pub unsafe trait BroadcastShape<Sout> {
     /// Output type.
     type Output;
 }
@@ -623,26 +791,27 @@ unsafe impl BroadcastShape<ATerm> for ATerm {
     type Output = B1;
 }
 
-unsafe impl<S, A> BroadcastShape<TArr<S, A>> for ATerm {
+unsafe impl<Dout, Aout> BroadcastShape<TArr<Dout, Aout>> for ATerm {
     type Output = B1;
 }
 
-unsafe impl<S, A, SRhs, ARhs> BroadcastShape<TArr<SRhs, ARhs>> for TArr<S, A>
+unsafe impl<Din, Ain, Dout, Aout> BroadcastShape<TArr<Dout, Aout>> for TArr<Din, Ain>
 where
-    S: IsEqual<SRhs> + IsEqual<U1>,
-    Eq<S, SRhs>: BitOr<Eq<S, U1>>,
-    A: BroadcastShape<ARhs>,
-    Or<Eq<S, SRhs>, Eq<S, U1>>: BitAnd<<A as BroadcastShape<ARhs>>::Output>,
+    Din: IsEqual<Dout> + IsEqual<U1>,
+    Eq<Din, Dout>: BitOr<Eq<Din, U1>>,
+    Ain: BroadcastShape<Aout>,
+    Or<Eq<Din, Dout>, Eq<Din, U1>>: BitAnd<<Ain as BroadcastShape<Aout>>::Output>,
 {
     type Output =
-        And<Or<Eq<S, SRhs>, Eq<S, U1>>, <A as BroadcastShape<ARhs>>::Output>;
+        And<Or<Eq<Din, Dout>, Eq<Din, U1>>, <Ain as BroadcastShape<Aout>>::Output>;
 }
 
 /// Type operator that strides a dimension.
 ///
-/// Outputs the result of striding the implementor dimension with Rhs.
+/// Outputs the result of striding `Self` with `Stride`.
 ///
 /// The result of striding [`Dyn`] or striding by [`Dyn`] is always [`Dyn`].
+/// In accordance with [`Dyn`]'s infectious property.
 ///
 /// # Examples
 /// ```
@@ -656,23 +825,27 @@ where
 /// ```
 ///
 /// [`Dyn`]: Dyn
-pub unsafe trait StridedDim<Rhs> {
+pub unsafe trait StridedDim<Stride> {
     /// Output type.
     type Output: Dim;
 }
 
-unsafe impl<U, B, V> StridedDim<V> for UInt<U, B>
+unsafe impl<U, B, Stride> StridedDim<Stride> for UInt<U, B>
 where
-    V: StaticDim,
-    Self: Div<V> + Rem<V>,
-    <Self as Rem<V>>::Output: IsGreater<U0>,
-    <Self as Div<V>>::Output: Add<Gr<<Self as Rem<V>>::Output, U0>>,
-    Sum<<Self as Div<V>>::Output, Gr<<Self as Rem<V>>::Output, U0>>: Dim,
+    Stride: StaticDim,
+    Self: Div<Stride> + Rem<Stride>,
+    <Self as Rem<Stride>>::Output: IsGreater<U0>,
+    <Self as Div<Stride>>::Output: Add<Gr<<Self as Rem<Stride>>::Output, U0>>,
+    Sum<<Self as Div<Stride>>::Output, Gr<<Self as Rem<Stride>>::Output, U0>>: Dim,
 {
-    type Output = Sum<<Self as Div<V>>::Output, Gr<<Self as Rem<V>>::Output, U0>>;
+    type Output = Sum<<Self as Div<Stride>>::Output, Gr<<Self as Rem<Stride>>::Output, U0>>;
 }
 
-unsafe impl<V> StridedDim<V> for Dyn {
+unsafe impl<Stride> StridedDim<Stride> for UTerm {
+    type Output = UTerm;
+}
+
+unsafe impl<Stride> StridedDim<Stride> for Dyn {
     type Output = Dyn;
 }
 
@@ -682,8 +855,8 @@ unsafe impl<U, B> StridedDim<Dyn> for UInt<U, B> {
 
 /// Type operator that strides a static shape.
 ///
-/// Outputs the shape corresponding to the striding of the implementor
-/// shape with Rhs.
+/// Outputs the shape corresponding to striding `Self`
+/// shape with `Strides`.
 ///
 /// This trait adds a further guarantee to `StridedShapeDyn` which is that
 /// the output is guaranteed to be static. This means that the two inputs
@@ -698,7 +871,7 @@ unsafe impl<U, B> StridedDim<Dyn> for UInt<U, B> {
 ///
 /// assert_eq!(<<Shape2D<U4, U2> as StridedShape<Shape2D<U2, U2>>>::Output as StaticShape>::to_vec(), vec![2, 1]);
 /// ```
-pub unsafe trait StridedShape<Rhs> {
+pub unsafe trait StridedShape<Strides> {
     /// Output type.
     type Output: StaticShape;
 }
@@ -707,19 +880,19 @@ unsafe impl StridedShape<ATerm> for ATerm {
     type Output = ATerm;
 }
 
-unsafe impl<S, A, SRhs, ARhs> StridedShape<TArr<SRhs, ARhs>> for TArr<S, A>
+unsafe impl<S, A, Sstrides, Astrides> StridedShape<TArr<Sstrides, Astrides>> for TArr<S, A>
 where
-    S: StridedDim<SRhs>,
-    A: StridedShape<ARhs>,
-    TArr<<S as StridedDim<SRhs>>::Output, <A as StridedShape<ARhs>>::Output>: StaticShape,
+    S: StridedDim<Sstrides>,
+    A: StridedShape<Astrides>,
+    TArr<<S as StridedDim<Sstrides>>::Output, <A as StridedShape<Astrides>>::Output>: StaticShape,
 {
-    type Output = TArr<<S as StridedDim<SRhs>>::Output, <A as StridedShape<ARhs>>::Output>;
+    type Output = TArr<<S as StridedDim<Sstrides>>::Output, <A as StridedShape<Astrides>>::Output>;
 }
 
 /// Type operator that strides a shape.
 ///
-/// Outputs the shape corresponding to the striding of the implementor
-/// shape with Rhs.
+/// Outputs the shape corresponding to striding `Self`
+/// shape with `Strides`.
 ///
 /// Note that this requires both shapes to have the same length.
 /// The output is just guaranteed to be `Shape` i.e. it can still be dynamic.
@@ -732,7 +905,7 @@ where
 /// // It works because Dyn can be equal to 42!
 /// assert!(<<Shape2D<Dyn, U4> as StridedShapeDyn<Shape2D<U2, U2>>>::Output as Shape>::runtime_compat(&[42, 2]));
 /// ```
-pub unsafe trait StridedShapeDyn<Rhs> {
+pub unsafe trait StridedShapeDyn<Strides> {
     /// Output type.
     type Output: Shape;
 }
@@ -741,21 +914,21 @@ unsafe impl StridedShapeDyn<ATerm> for ATerm {
     type Output = ATerm;
 }
 
-unsafe impl<S, A, SRhs, ARhs> StridedShapeDyn<TArr<SRhs, ARhs>> for TArr<S, A>
+unsafe impl<S, A, Sstrides, Astrides> StridedShapeDyn<TArr<Sstrides, Astrides>> for TArr<S, A>
 where
-    S: StridedDim<SRhs>,
-    A: StridedShapeDyn<ARhs>,
-    TArr<<S as StridedDim<SRhs>>::Output, <A as StridedShapeDyn<ARhs>>::Output>: Shape,
+    S: StridedDim<Sstrides>,
+    A: StridedShapeDyn<Astrides>,
+    TArr<<S as StridedDim<Sstrides>>::Output, <A as StridedShapeDyn<Astrides>>::Output>: Shape,
 {
-    type Output = TArr<<S as StridedDim<SRhs>>::Output, <A as StridedShapeDyn<ARhs>>::Output>;
+    type Output = TArr<<S as StridedDim<Sstrides>>::Output, <A as StridedShapeDyn<Astrides>>::Output>;
 }
 
 /// Type operator that computes upsampling strides.
 ///
 /// Outputs the strides that need to be used on `Self`
-/// when upsampling `Rhs` into `Self`.
+/// when upsampling `Sin` into `Self`.
 /// 
-/// If a dimension in `Rhs` is `Dyn`, the corresponding
+/// If a dimension in `Sin` is `Dyn`, the corresponding
 /// dimension in `Self` must also be `Dyn`. This constraint
 /// is present because switching from a dynamic dimension in
 /// the input to a statically known dimension in the output
@@ -771,7 +944,7 @@ where
 /// // It works because Dyn can be equal to 42!
 /// assert!(<<Shape2D<Dyn, U4> as UpsamplingStrides<Shape2D<Dyn, U2>>>::Output as Shape>::runtime_compat(&[42, 2]));
 /// ```
-pub unsafe trait UpsamplingStrides<Rhs> {
+pub unsafe trait UpsamplingStrides<Sin> {
     /// Output type.
     type Output: Shape;
 }
@@ -780,17 +953,17 @@ unsafe impl UpsamplingStrides<ATerm> for ATerm {
     type Output = ATerm;
 }
 
-unsafe impl<S, A, SRhs, ARhs> UpsamplingStrides<TArr<SRhs, ARhs>> for TArr<S, A>
+unsafe impl<Sout, Aout, Sin, Ain> UpsamplingStrides<TArr<Sin, Ain>> for TArr<Sout, Aout>
 where
-    S: IsNotEqual<Dyn> + Div<SRhs>,
-    SRhs: IsEqual<Dyn>,
-    NotEq<S, Dyn>: BitAnd<Eq<SRhs, Dyn>>,
-    And<NotEq<S, Dyn>, Eq<SRhs, Dyn>>: IsEqual<B0>,
-    Eq<And<NotEq<S, Dyn>, Eq<SRhs, Dyn>>, B0>: TRUE,
-    A: UpsamplingStrides<ARhs>,
-    TArr<Quot<S, SRhs>, <A as UpsamplingStrides<ARhs>>::Output>: Shape,
+    Sout: IsNotEqual<Dyn> + Div<Sin>,
+    Sin: IsEqual<Dyn>,
+    NotEq<Sout, Dyn>: BitAnd<Eq<Sin, Dyn>>,
+    And<NotEq<Sout, Dyn>, Eq<Sin, Dyn>>: IsEqual<B0>,
+    Eq<And<NotEq<Sout, Dyn>, Eq<Sin, Dyn>>, B0>: TRUE,
+    Aout: UpsamplingStrides<Ain>,
+    TArr<Quot<Sout, Sin>, <Aout as UpsamplingStrides<Ain>>::Output>: Shape,
 {
-    type Output = TArr<Quot<S, SRhs>, <A as UpsamplingStrides<ARhs>>::Output>;
+    type Output = TArr<Quot<Sout, Sin>, <Aout as UpsamplingStrides<Ain>>::Output>;
 }
 
 /// Conditionnal trait operator.
@@ -811,7 +984,7 @@ impl<T, Else> If<T, Else> for B0 {
     type Output = Else;
 }
 
-/// Trait operator that inserts dimension S before the first axis.
+/// Trait operator that inserts dimension `Dnew` before the first axis.
 ///
 /// This is useful because dimensions are stored in reverse order in
 /// the recursive `TArr` structure.
@@ -823,20 +996,20 @@ impl<T, Else> If<T, Else> for B0 {
 ///
 /// assert_eq!(<<Shape1D<U2> as Insert<U1>>::Output as StaticShape>::to_vec(), vec![1, 2]);
 /// ```
-pub unsafe trait Insert<S> {
+pub unsafe trait Insert<Dnew> {
     /// Output type.
     type Output;
 }
 
-unsafe impl<S> Insert<S> for ATerm {
-    type Output = TArr<S, ATerm>;
+unsafe impl<Dnew> Insert<Dnew> for ATerm {
+    type Output = TArr<Dnew, ATerm>;
 }
 
-unsafe impl<S, A, Z> Insert<Z> for TArr<S, A>
+unsafe impl<D, A, Dnew> Insert<Dnew> for TArr<D, A>
 where
-    A: Insert<Z>,
+    A: Insert<Dnew>,
 {
-    type Output = TArr<S, <A as Insert<Z>>::Output>;
+    type Output = TArr<D, <A as Insert<Dnew>>::Output>;
 }
 
 /// Trait operator that removes the first axis.
@@ -856,15 +1029,15 @@ pub unsafe trait RemoveFirst {
     type Output;
 }
 
-unsafe impl<S> RemoveFirst for TArr<S, ATerm> {
+unsafe impl<D> RemoveFirst for TArr<D, ATerm> {
     type Output = ATerm;
 }
 
-unsafe impl<S, A> RemoveFirst for TArr<S, A>
+unsafe impl<D, A> RemoveFirst for TArr<D, A>
 where
     A: RemoveFirst,
 {
-    type Output = TArr<S, <A as RemoveFirst>::Output>;
+    type Output = TArr<D, <A as RemoveFirst>::Output>;
 }
 
 /// Type operator that reverses the order of the axes in the implementor shape.
@@ -885,24 +1058,24 @@ unsafe impl TransposeShape for ATerm {
     type Output = ATerm;
 }
 
-unsafe impl<S, A> TransposeShape for TArr<S, A>
+unsafe impl<D, A> TransposeShape for TArr<D, A>
 where
     A: TransposeShape,
-    <A as TransposeShape>::Output: Insert<S>,
+    <A as TransposeShape>::Output: Insert<D>,
 {
-    type Output = <<A as TransposeShape>::Output as Insert<S>>::Output;
+    type Output = <<A as TransposeShape>::Output as Insert<D>>::Output;
 }
 
 /// 1D shape alias.
-pub type Shape1D<S0> = TArr<S0, ATerm>;
+pub type Shape1D<D0> = TArr<D0, ATerm>;
 /// 2D shape alias.
-pub type Shape2D<S0, S1> = TArr<S1, TArr<S0, ATerm>>;
+pub type Shape2D<D0, D1> = TArr<D1, TArr<D0, ATerm>>;
 /// 3D shape alias.
-pub type Shape3D<S0, S1, S2> = TArr<S2, TArr<S1, TArr<S0, ATerm>>>;
+pub type Shape3D<D0, D1, D2> = TArr<D2, TArr<D1, TArr<D0, ATerm>>>;
 /// 4D shape alias.
-pub type Shape4D<S0, S1, S2, S3> = TArr<S3, TArr<S2, TArr<S1, TArr<S0, ATerm>>>>;
+pub type Shape4D<D0, D1, D2, D3> = TArr<D3, TArr<D2, TArr<D1, TArr<D0, ATerm>>>>;
 /// 5D shape alias.
-pub type Shape5D<S0, S1, S2, S3, S4> = TArr<S4, TArr<S3, TArr<S2, TArr<S1, TArr<S0, ATerm>>>>>;
+pub type Shape5D<D0, D1, D2, D3, D4> = TArr<D4, TArr<D3, TArr<D2, TArr<D1, TArr<D0, ATerm>>>>>;
 /// 6D shape alias.
-pub type Shape6D<S0, S1, S2, S3, S4, S5> =
-    TArr<S5, TArr<S4, TArr<S3, TArr<S2, TArr<S1, TArr<S0, ATerm>>>>>>;
+pub type Shape6D<D0, D1, D2, D3, D4, D5> =
+    TArr<D5, TArr<D4, TArr<D3, TArr<D2, TArr<D1, TArr<D0, ATerm>>>>>>;

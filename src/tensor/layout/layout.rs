@@ -56,6 +56,22 @@ pub trait Layout<U>: Clone {
     /// assert_eq!(Vec::from(layout.strides()), vec![2, 1]);
     /// ```
     fn strides(&self) -> Index<U>;
+    /// Returns an [`Index`](Index) representing the offset of the tensor.
+    ///
+    /// This offset is the collection of the stating index of all the
+    /// axes of a tensor. For most tensors, the offset is just full
+    /// of zeros. This feature is manly useful for subviews on tensors.
+    ///
+    /// # Examples
+    /// ```
+    /// use typenum::U2;
+    /// use melange::tensor::shape::Shape2D;
+    /// use melange::tensor::layout::{Layout, StaticLayout};
+    ///
+    /// let layout: StaticLayout<Shape2D<U2, U2>> = StaticLayout::new();
+    /// assert_eq!(Vec::from(layout.offset()), vec![0, 0]);
+    /// ```
+    fn offset(&self) -> Index<U>;
     /// Returns the number of elements in the tensor.
     ///
     /// # Examples

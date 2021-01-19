@@ -8,7 +8,7 @@ use crate::tensor::index::Index;
 use crate::tensor::layout::{DynamicLayout, Layout, StaticLayout};
 use crate::tensor::shape::{
     intrinsic_strides_in_place, BroadcastShape, Same, StaticShape, StridedShape, StridedShapeDyn,
-    TRUE, TransposeShape,
+    TRUE, TransposeShape, Fit,
 };
 use std::convert::TryFrom;
 use std::marker::PhantomData;
@@ -299,6 +299,60 @@ pub trait AsDynamic {
     fn as_dynamic(self) -> Self::Output;
 }
 
+/// View on a part of a static tensor.
+///
+/// Outputs a view on a part of a tensor i.e. a tensor whose data is
+/// a borrowing of part of the data of another tensor.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::{U0, U1, U2, U3};
+///
+/// let a: StaticTensor<i32, Shape2D<U3, U3>> = Tensor::try_from(vec![
+///     1, 2, 3,
+///     4, 5, 6,
+///     7, 8, 9
+/// ]).unwrap();
+/// let a = Subview::<Shape2D<U0, U1>, Shape2D<U2, U2>>::subview(&a);
+/// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![2, 3, 5, 6]).unwrap();
+/// assert_eq!(a, b);
+/// ```
+pub trait Subview<Offset, Sout> {
+    /// Output type.
+    type Output;
+
+    /// Returns a subview on the tensor.
+    fn subview(self) -> Self::Output;
+}
+
+/// View on a part of a dynamic tensor.
+///
+/// Outputs a view on a part of a tensor i.e. a tensor whose data is
+/// a borrowing of part of the data of another tensor.
+///
+/// # Examples
+/// ```
+/// use melange::prelude::*;
+/// use typenum::{U2, U4};
+///
+/// let a: DynamicTensor<i32, Shape2D<Dyn, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
+/// let a = AsStatic::<Shape2D<U2, U2>>::as_static(&a);
+/// let b: StaticTensor<i32, Shape2D<U2, U2>> = Tensor::try_from(vec![1, 2, 3, 4]).unwrap();
+/// assert_eq!(a, b);
+/// ```
+pub trait SubviewDynamic<Offset, Sout>
+where
+    Offset: Shape,
+    Sout: Shape,
+{
+    /// Output type.
+    type Output;
+
+    /// Returns a subview on the tensor.
+    fn subview_dynamic(self, runtime_offset: Index<Offset::Len>, runtime_shape: Index<Sout::Len>) -> Self::Output;
+}
+
 macro_rules! views_impl {
     ($({$($ref_:tt $lt:lifetime $($mut_:tt)?)?} $(-> $storage_out:ty $(where D: $bound:path)?)?);*) => {$(
         macro_rules! isset_or_default {
@@ -355,6 +409,7 @@ macro_rules! views_impl {
                     layout: DynamicLayout {
                         shape: Index::try_from(new_shape).unwrap(),
                         strides: Index::try_from(new_strides).unwrap(),
+                        offset: Index::try_from(vec![0; Sout::Len::USIZE]).unwrap(),
                         num_elements: Sout::NumElements::USIZE,
                         opt_chunk_size: new_opt_chunk_size,
                     },
@@ -424,6 +479,7 @@ macro_rules! views_impl {
                     layout: DynamicLayout {
                         shape: runtime_shape,
                         strides: Index::try_from(new_strides).unwrap(),
+                        offset: Index::try_from(vec![0; Sout::Len::USIZE]).unwrap(),
                         num_elements: new_num_elements,
                         opt_chunk_size: new_opt_chunk_size,
                     },
@@ -467,6 +523,7 @@ macro_rules! views_impl {
                     layout: DynamicLayout {
                         shape: Index::try_from(<<S as StridedShape<Strides>>::Output as StaticShape>::to_vec()).unwrap(),
                         strides: Index::try_from(new_strides).unwrap(),
+                        offset: Index::try_from(vec![0; <<<S as StridedShape<Strides>>::Output as Shape>::Len as Unsigned>::USIZE]).unwrap(),
                         num_elements:
                             <<<S as StridedShape<Strides>>::Output as StaticShape>::NumElements as Unsigned>::USIZE,
                         opt_chunk_size: new_opt_chunk_size,
@@ -521,6 +578,7 @@ macro_rules! views_impl {
                     layout: DynamicLayout {
                         shape: Index::try_from(new_shape).unwrap(),
                         strides: Index::try_from(new_strides).unwrap(),
+                        offset: Index::try_from(vec![0; <<<S as StridedShapeDyn<Strides>>::Output as Shape>::Len as Unsigned>::USIZE]).unwrap(),
                         num_elements: new_num_elements,
                         opt_chunk_size: new_opt_chunk_size,
                     },
@@ -546,6 +604,7 @@ macro_rules! views_impl {
                     layout: DynamicLayout {
                         shape: Index::try_from(shape).unwrap(),
                         strides: Index::try_from(strides).unwrap(),
+                        offset: Index::try_from(vec![0; S::Len::USIZE]).unwrap(),
                         num_elements,
                         opt_chunk_size: 1,
                     },
@@ -602,6 +661,7 @@ macro_rules! views_impl {
                     layout: DynamicLayout {
                         shape: runtime_shape,
                         strides: Index::try_from(new_strides).unwrap(),
+                        offset: Index::try_from(vec![0; Sout::Len::USIZE]).unwrap(),
                         num_elements,
                         opt_chunk_size: num_elements,
                     },
@@ -648,6 +708,39 @@ macro_rules! views_impl {
                 Tensor {
                     data: $($ref_ $($mut_)?)? self.data,
                     layout: self.layout.clone(),
+                    _phantoms: PhantomData,
+                }
+            }
+        }
+
+        impl<$($lt,)? Y, Z, T, S, A, D, L, Offset, Sout> Subview<Offset, Sout> for $($ref_ $lt $($mut_)?)? Tensor<Static, Y, Z, T, S, A, D, L>
+        where
+            Offset: StaticShape,
+            Sout: StaticShape,
+            S: Shape<Len = Sout::Len> + Fit<Offset, Sout>,
+            <S as Fit<Offset, Sout>>::Output: TRUE,
+            $($(D: $bound,)?)?
+            L: Layout<S::Len>,
+        {
+            type Output = Tensor<Static, Strided, Z, T, Sout, A, isset_or_default!($($storage_out)?), DynamicLayout<Sout::Len>>;
+            fn subview(self) -> Self::Output {
+                let strides = self.strides();
+                let opt_chunk_size_index = Sout::Len::USIZE - self.shape().into_iter().zip(Sout::to_vec().into_iter()).rev().take_while(|(d, d_out)| *d == d_out).count();
+                let opt_chunk_size = self.opt_chunk_size().min(if opt_chunk_size_index >= 2 {
+                    Sout::strides()[opt_chunk_size_index - 2]
+                } else {
+                    Sout::NumElements::USIZE
+                });
+                println!("index: {}, opt: {}", opt_chunk_size_index, opt_chunk_size);
+                Tensor {
+                    data: $($ref_ $($mut_)?)? self.data,
+                    layout: DynamicLayout {
+                        shape: Index::try_from(Sout::to_vec()).unwrap(),
+                        strides: Index::try_from(strides).unwrap(),
+                        offset: Index::try_from(Offset::to_vec()).unwrap(),
+                        num_elements: Sout::NumElements::USIZE,
+                        opt_chunk_size,
+                    },
                     _phantoms: PhantomData,
                 }
             }

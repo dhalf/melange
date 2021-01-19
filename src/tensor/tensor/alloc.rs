@@ -103,6 +103,7 @@ where
             layout: DynamicLayout {
                 shape,
                 strides: Index::try_from(strides).unwrap(),
+                offset: Index::try_from(vec![0; S::Len::USIZE]).unwrap(),
                 num_elements,
                 opt_chunk_size: num_elements,
             },
@@ -128,6 +129,7 @@ where
                 shape: tensor.shape(),
                 strides: Index::try_from(intrinsic_strides_in_place(tensor.shape().into()))
                     .unwrap(),
+                offset: Index::try_from(vec![0; S::Len::USIZE]).unwrap(),
                 num_elements: tensor.num_elements(),
                 opt_chunk_size: tensor.num_elements(),
             },
