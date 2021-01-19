@@ -28,15 +28,6 @@ macro_rules! cross_domain_fn_impl {
             () => { S };
         }
 
-        macro_rules! fill {
-            ($param_:ident: $var:ty) => {
-                A::fill($param_, T::ZERO)
-            };
-            () => {
-                A::fill(T::ZERO)
-            };
-        }
-
         macro_rules! op {
             ($self_:ident, $fn_name_:ident, $param_:ident: $var:ty) => {
                 $self_.value.$fn_name_($param_.clone())
@@ -67,7 +58,7 @@ macro_rules! cross_domain_fn_impl {
         impl<'var, T, X, Y, Z, S, A, D, L, G, B, $($static_shape)?> $wrapper_trait_name<'var, $($static_shape)?> for Variable<'var, T, Tensor<X, Y, Z, T, S, A, D, L>, G, B>
         where
             // Forward operation.
-            Tensor<X, Y, Z, T, S, A, D, L>: $trait_name<'var, $($static_shape)?>,
+            &'var Tensor<X, Y, Z, T, S, A, D, L>: $trait_name<$($static_shape)?>,
             $($static_shape: Shape,)?
             
             // Output variable gradient allocation.
@@ -96,7 +87,7 @@ macro_rules! cross_domain_fn_impl {
             $($($(for<$($lgen),+>)? $generic: $($bound +)*),*)?
         {
             type OutputScalar = T;
-            type OutputValue = <Tensor<X, Y, Z, T, S, A, D, L> as $trait_name<'var, $($static_shape)?>>::Output;
+            type OutputValue = <&'var Tensor<X, Y, Z, T, S, A, D, L> as $trait_name<$($static_shape)?>>::Output;
             type OutputGrad = A::Alloc;
             type Back = B;
             type InputShape = S;
@@ -106,18 +97,10 @@ macro_rules! cross_domain_fn_impl {
             {
                 $($(let $param = param.clone();)?)?
                 let value = op!($self, $fn_name, $(param: $param_type)?);
-                let grad = {
-                    let self_grad = $self.grad.borrow();
-                    if let Some(_) = *self_grad {
-                        Some(fill!($(param: $param_type)?))
-                    } else {
-                        None
-                    }
-                };
 
                 Variable(Rc::new(InternalVariable {
                     value,
-                    grad: RefCell::new(grad),
+                    grad: RefCell::new(None),
                     backward_op_name: $op_name,
                     backward_closure: Box::new($backward_closure),
                 }), PhantomData)
@@ -176,13 +159,59 @@ cross_domain_fn_impl! {
     }
 }
 
+// Missing impl in the dynamic case.
 cross_domain_fn_impl! {
     VariableTranspose; StaticAlloc;
     Transpose; transpose; "transpose_back";
     where fn
-        Bnext | 'a: Transpose<'a>,
-        <Bnext as Transpose<'a>>::Output | 'a: AllocLike<Alloc = Self::Back>;
+        Bnext: Transpose<Output = Self::Back>;
     (self) => move |grad| {
-        self.backward(grad.transpose().to_contiguous());
+        self.backward(grad.transpose());
+    }
+}
+
+cross_domain_fn_impl! {
+    VariableReshape; StaticAlloc;
+    Reshape<Sout>; reshape; "reshape_back";
+    where fn
+        Bnext: Reshape<Self::InputShape, Output = Self::Back>;
+    (self) => move |grad| {
+        self.backward(grad.reshape());
+    }
+}
+
+cross_domain_fn_impl! {
+    VariableReshapeDynamic; DynamicAlloc;
+    ReshapeDynamic<Sout>; reshape_dynamic<Index<Sout::Len>>; "reshape_dynamic_back";
+    where trait
+        S: Shape,
+        L: Layout<S::Len>;
+    where fn
+        Bnext: ReshapeDynamic<Self::InputShape, Output = Self::Back>,
+        Self::InputShape: Shape;
+    (self) => move |grad| {
+        self.backward(grad.reshape_dynamic(self.value.shape()));
+    }
+}
+
+cross_domain_fn_impl! {
+    VariableAsStatic; StaticAlloc;
+    AsStatic<Sout>; as_static; "as_static_back";
+    where fn
+        Bnext: AsDynamic<Output = Self::Back>;
+    (self) => move |grad| {
+        self.backward(grad.as_dynamic());
+    }
+}
+
+cross_domain_fn_impl! {
+    VariableAsDynamic; DynamicAlloc;
+    AsDynamic; as_dynamic; "as_dynamic_back";
+    where trait
+        S: Shape;
+    where fn
+        Bnext: AsStatic<Self::InputShape, Output = Self::Back>;
+    (self) => move |grad| {
+        self.backward(grad.as_static());
     }
 }

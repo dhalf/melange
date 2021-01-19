@@ -34,7 +34,7 @@ macro_rules! two_diff_op_impl {
         impl<'var, T, V, G, B, Vrhs, Grhs> $trait_name<Variable<'var, T, Vrhs, Grhs, B::Alloc>> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
-            for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = <V as BinaryOp<Vrhs>>::Output>,
+            for<'a> &'a V: $trait_name<&'a Vrhs, Output = <V as BinaryOp<Vrhs>>::Output>,
             V: BinaryOp<Vrhs>,
 
             // Output variable gradient allocation.
@@ -100,10 +100,10 @@ two_diff_op_impl! {
         Vrhs: AllocLike<Scalar = T>,
         &'a V | 'a: Conj<Output = V::Alloc>,
         &'a Vrhs | 'a: Conj<Output = Vrhs::Alloc>,
-        &'a B | 'a, 'b: Mul<V::Alloc, Output = B::Alloc>,
+        &'a B | 'a: Mul<&'a V::Alloc, Output = B::Alloc>,
         B: Mul<Vrhs::Alloc, Output = B>;
     (self, rhs) => move |grad| {
-        rhs.backward(&grad * self.value.conj());
+        rhs.backward(&grad * &self.value.conj());
         self.backward(grad * rhs.value.conj());
     }
 }
@@ -116,12 +116,12 @@ two_diff_op_impl! {
         V::Alloc | 'a: Div<&'a Vrhs, Output = V::Output>,
         V::Output | 'a: Div<&'a Vrhs, Output = V::Output>,
         V::Output: Conj<Output = V::Alloc>,
-        &'a B | 'a: Mul<V::Alloc, Output = B::Alloc>,
+        &'a B | 'a: Mul<&'a V::Alloc, Output = B::Alloc>,
         &'a Vrhs | 'a: Recip<Output = Vrhs::Alloc>,
         Vrhs::Alloc: Conj<Output = Vrhs::Alloc>,
         B: Mul<Vrhs::Alloc, Output = B>;
     (self, rhs) => move |grad| {
-        rhs.backward(&grad * ((-&self.value / &rhs.value) / &rhs.value).conj());
+        rhs.backward(&grad * &((-&self.value / &rhs.value) / &rhs.value).conj());
         self.backward(grad * rhs.value.recip().conj());
     }
 }
@@ -135,13 +135,13 @@ two_diff_op_impl! {
         &'a V | 'a: Mul<Output = V::Alloc>,
         &'a Vrhs | 'a: Mul<Output = Vrhs::Alloc>,
         V::Alloc: Add<Vrhs::Alloc, Output = V::Output>,
-        &'a B | 'a: Mul<V::Alloc, Output = B::Alloc>,
+        &'a B | 'a: Mul<&'a V::Alloc, Output = B::Alloc>,
         B::Alloc | 'a: Div<&'a V::Output, Output = B::Alloc>,
         B | 'a: Mul<&'a Vrhs, Output = B>,
         B: Div<V::Output, Output = B>;
     (self, rhs) => move |grad| {
         let norm_sqr = &self.value * &self.value + &rhs.value * &rhs.value;
-        rhs.backward(&grad * -&self.value / &norm_sqr);
+        rhs.backward(&grad * &(-&self.value) / &norm_sqr);
         self.backward(grad * &rhs.value / norm_sqr);
     }
 }
@@ -150,7 +150,7 @@ two_diff_op_impl! {
 two_diff_op_impl! {
     Hypot; hypot; "hypot_back";
     where
-        &'a B | 'a, 'b: Mul<&'b Vrhs, Output = B::Alloc>,
+        &'a B | 'a: Mul<&'a Vrhs, Output = B::Alloc>,
         B::Alloc | 'a: Div<&'a V::Output, Output = B::Alloc>,
         B | 'a: Mul<&'a V, Output = B>,
         B: Div<V::Output, Output = B>;
@@ -180,14 +180,14 @@ two_diff_op_impl! {
 two_diff_op_impl! {
     Max; max; "max_back";
     where
-        &'a V | 'a, 'b: MaxMask<&'b Vrhs, Output = V::Output>,
+        &'a V | 'a: MaxMask<&'a Vrhs, Output = V::Output>,
         T: Neg<Output = T> | One,
         &'a V::Output | 'a: MulAdd<T, T, Output = V::Output>,
-        &'a B | 'a: Mul<V::Output, Output = B::Alloc>,
+        &'a B | 'a: Mul<&'a V::Output, Output = B::Alloc>,
         B: Mul<V::Output, Output = B>;
     (self, rhs) => move |grad| {
         let mask = self.value.max_mask(&rhs.value);
-        rhs.backward(&grad * mask.mul_add(-T::ONE, T::ONE));
+        rhs.backward(&grad * &mask.mul_add(-T::ONE, T::ONE));
         self.backward(grad * mask);
     }
 }
@@ -196,14 +196,14 @@ two_diff_op_impl! {
 two_diff_op_impl! {
     Min; min; "min_back";
     where
-        &'a V | 'a, 'b: MinMask<&'b Vrhs, Output = V::Output>,
+        &'a V | 'a: MinMask<&'a Vrhs, Output = V::Output>,
         T: Neg<Output = T> | One,
         &'a V::Output | 'a: MulAdd<T, T, Output = V::Output>,
-        &'a B | 'a: Mul<V::Output, Output = B::Alloc>,
+        &'a B | 'a: Mul<&'a V::Output, Output = B::Alloc>,
         B: Mul<V::Output, Output = B>;
     (self, rhs) => move |grad| {
         let mask = self.value.min_mask(&rhs.value);
-        rhs.backward(&grad * mask.mul_add(-T::ONE, T::ONE));
+        rhs.backward(&grad * &mask.mul_add(-T::ONE, T::ONE));
         self.backward(grad * mask);
     }
 }
@@ -219,7 +219,7 @@ macro_rules! three_diff_op_impl {
         impl<'var, T, V, G, B, Vrhs0, Grhs0, Vrhs1, Grhs1> $trait_name<Variable<'var, T, Vrhs0, Grhs0, B::Alloc>, Variable<'var, T, Vrhs1, Grhs1, B::Alloc>> for Variable<'var, T, V, G, B>
         where
             // Forward operation.
-            for<'a, 'b, 'c> &'a V: $trait_name<&'b Vrhs0, &'c Vrhs1, Output = V::Alloc>,
+            for<'a> &'a V: $trait_name<&'a Vrhs0, &'a Vrhs1, Output = V::Alloc>,
             // Output variable gradient allocation.
             V: AllocLike<Scalar = T>,
             T: Zero,
@@ -919,7 +919,7 @@ macro_rules! cross_domain_two_diff_op_impl {
         impl<'var, T, V, G, B, Vrhs, Grhs> $wrapper_trait_name<'var, Variable<'var, $t, Vrhs, Grhs, B>> for Variable<'var, $t, V, G, B>
         where
             // Forward operation.
-            for<'a, 'b> &'a V: $trait_name<&'b Vrhs, Output = V::Output>,
+            for<'a> &'a V: $trait_name<&'a Vrhs, Output = V::Output>,
             V: BinaryOp<Vrhs>,
             // Output variable gradient allocation.
             V: AllocSameShape<$output_type>,

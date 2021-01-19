@@ -19,7 +19,7 @@ use super::index::Index;
 use super::layout::{DynamicLayout, Layout};
 use super::shape::{BroadcastShape, PartialCopy, Same, Shape, Shape1D, StaticShape, TRUE, UpsamplingStrides};
 use super::strided_iterator::StridedIterator;
-use super::view::{BroadcastDynamicMut, BroadcastMut, StrideDynamicMut, StrideMut};
+use super::view::{BroadcastDynamic, Broadcast, StrideDynamic, Stride};
 use super::{AsRawSlice, Dynamic, Static, Strided, Tensor};
 use crate::ops::{MaxAssign, MinAssign};
 use crate::scalar_traits::*;
@@ -290,13 +290,13 @@ macro_rules! reduction_impls {
             S: Shape,
             Sout: StaticShape + BroadcastShape<S>,
             A: StaticAlloc<T, Sout>,
-            for<'a> A::Alloc: BroadcastMut<'a, S, Output=Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
+            for<'a> &'a mut A::Alloc: Broadcast<S, Output=Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
             for<'a> Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>: $reduction_trait<Self>,
         {
             type Output = A::Alloc;
             fn $trait_fn(self) -> Self::Output {
                 let mut out = A::fill($init_value);
-                out.broadcast_mut().$reduction_trait_fn(self);
+                out.broadcast().$reduction_trait_fn(self);
                 out
             }
         }
@@ -309,7 +309,7 @@ macro_rules! reduction_impls {
             Sout: PartialCopy + BroadcastShape<S>,
             A: DynamicAlloc<T, Sout>,
             L: Layout<S::Len>,
-            for<'a> A::Alloc: BroadcastDynamicMut<'a, S, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
+            for<'a> &'a mut A::Alloc: BroadcastDynamic<S, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
             for<'a> Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>: $reduction_trait<Self>,
         {
             type Output = A::Alloc;
@@ -318,7 +318,7 @@ macro_rules! reduction_impls {
                 Sout::partial_copy(&mut output_shape);
 
                 let mut out: Self::Output = A::fill(Index::try_from(output_shape).unwrap(), $init_value);
-                out.broadcast_dynamic_mut(self.shape()).$reduction_trait_fn(self);
+                out.broadcast_dynamic(self.shape()).$reduction_trait_fn(self);
 
                 out
             }
@@ -378,13 +378,13 @@ where
     S: Shape,
     Sout: StaticShape + UpsamplingStrides<S>,
     A: StaticAlloc<T, Sout>,
-    for<'a> A::Alloc: StrideMut<'a, <Sout as UpsamplingStrides<S>>::Output, Output=Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
+    for<'a> &'a mut A::Alloc: Stride<<Sout as UpsamplingStrides<S>>::Output, Output=Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
     for<'a> Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>: AddAssign<Self>,
 {
     type Output = A::Alloc;
     fn upsample(self) -> A::Alloc {
         let mut out = A::fill(T::ZERO);
-        out.stride_mut().add_assign(self);
+        out.stride().add_assign(self);
         out
     }
 }
@@ -397,7 +397,7 @@ where
     Sout: Shape + UpsamplingStrides<S>,
     A: DynamicAlloc<T, Sout>,
     L: Layout<S::Len>,
-    for<'a> A::Alloc: StrideDynamicMut<'a, <Sout as UpsamplingStrides<S>>::Output, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
+    for<'a> &'a mut A::Alloc: StrideDynamic<<Sout as UpsamplingStrides<S>>::Output, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
     for<'a> Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>: AddAssign<Self>,
 {
     type Output = A::Alloc;
@@ -409,7 +409,7 @@ where
         let runtime_strides: Vec<_> = runtime_shape.iter().zip(self.shape().iter()).map(|(o, i)| o / i).collect();
         let runtime_strides = Index::try_from(runtime_strides).unwrap();
         let mut out: Self::Output = A::fill(Index::try_from(runtime_shape).unwrap(), T::ZERO);
-        out.stride_dynamic_mut(runtime_strides).add_assign(self);
+        out.stride_dynamic(runtime_strides).add_assign(self);
 
         out
     }
@@ -423,13 +423,13 @@ where
     Sout: Shape + BroadcastShape<S>,
     A: DynamicAlloc<T, Sout>,
     L: Layout<S::Len>,
-    for<'a> A::Alloc: BroadcastDynamicMut<'a, S, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
+    for<'a> &'a mut A::Alloc: BroadcastDynamic<S, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
     for<'a> Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>: AddAssign<Self>,
 {
     type Output = A::Alloc;
     fn broadcast_dynamic_back(self, runtime_shape: Index<Sout::Len>) -> Self::Output {
         let mut out: Self::Output = A::fill(runtime_shape, T::ZERO);
-        out.broadcast_dynamic_mut(self.shape()).add_assign(self);
+        out.broadcast_dynamic(self.shape()).add_assign(self);
 
         out
     }
@@ -441,13 +441,13 @@ where
     S: Shape,
     Sout: StaticShape,
     A: StaticAlloc<T, Sout>,
-    for<'a> A::Alloc: StrideMut<'a, Strides, Output=Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
+    for<'a> &'a mut A::Alloc: Stride<Strides, Output=Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
     for<'a> Tensor<Static, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>: AddAssign<Self>,
 {
     type Output = A::Alloc;
     fn stride_back(self) -> A::Alloc {
         let mut out = A::fill(T::ZERO);
-        out.stride_mut().add_assign(self);
+        out.stride().add_assign(self);
         out
     }
 }
@@ -461,7 +461,7 @@ where
     Strides: Shape,
     A: DynamicAlloc<T, Sout>,
     L: Layout<S::Len>,
-    for<'a> A::Alloc: StrideDynamicMut<'a, Strides, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
+    for<'a> &'a mut A::Alloc: StrideDynamic<Strides, Output=Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>>,
     for<'a> Tensor<Dynamic, Strided, Z, T, S, A, &'a mut [T], DynamicLayout<S::Len>>: AddAssign<Self>,
 {
     type Output = A::Alloc;
@@ -471,7 +471,7 @@ where
             "`runtime_shape` is incompatible with static shape `Sout`."
         );
         let mut out: Self::Output = A::fill(Index::try_from(runtime_shape).unwrap(), T::ZERO);
-        out.stride_dynamic_mut(runtime_strides).add_assign(self);
+        out.stride_dynamic(runtime_strides).add_assign(self);
 
         out
     }

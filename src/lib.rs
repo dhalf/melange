@@ -225,7 +225,7 @@ mod tests {
         let a = Variable::from(a);
         let b = Variable::from(b);
 
-        let c = Variable::clone(&a).transpose() * b;
+        let c = a.transpose() * b;
         c.backward(g);
 
         let d: StaticTensor<f64, Shape2D<U2, U2>> =

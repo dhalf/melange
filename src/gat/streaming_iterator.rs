@@ -26,7 +26,7 @@ use super::*;
 /// use typenum::{U1, U2};
 ///
 /// let mut a: StaticTensor<i32, Shape2D<U1, U2>> = Tensor::try_from(vec![1, 2]).unwrap();
-/// let mut a = BroadcastMut::<Shape2D<U2, U2>>::broadcast_mut(&mut a);
+/// let mut a = Broadcast::<Shape2D<U2, U2>>::broadcast(&mut a);
 /// let mut streaming_iteartor = a.strided_iter_mut(2);
 ///
 /// while let Some(chunk) = streaming_iteartor.next() {
@@ -41,7 +41,7 @@ use super::*;
 /// # use typenum::{U1, U2};
 /// #
 /// # let mut a: StaticTensor<i32, Shape2D<U1, U2>> = Tensor::try_from(vec![1, 2]).unwrap();
-/// # let mut a = a.broadcast_mut::<Shape2D<U2, U2>>();
+/// # let mut a = a.broadcast::<Shape2D<U2, U2>>();
 /// # let mut streaming_iteartor = a.strided_iter_mut(2);
 /// #
 /// let r1 = streaming_iteartor.next();
