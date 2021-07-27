@@ -1,11 +1,10 @@
 use super::*;
 use crate::stack_buffer::StackBuffer;
 use std::ops::Add;
-use typenum::bit::{B0, B1};
+use typenum::bit::B1;
 use typenum::{UInt, UTerm};
 
-pub trait StaticAxes {
-    type Len: StackBuffer<[usize; 1]>;
+pub trait StaticAxes: Axes {
     fn _runtime_inner(ax: &mut [usize], idx: usize);
     fn runtime() -> <Self::Len as StackBuffer<[usize; 1]>>::Buffer;
 }
@@ -15,9 +14,10 @@ where
     N: Unsigned,
     As: StaticAxes,
     As::Len: Add<UInt<UTerm, B1>>,
-    <As::Len as Add<UInt<UTerm, B1>>>::Output: StackBuffer<[usize; 1]>,
+    <As::Len as Add<UInt<UTerm, B1>>>::Output: Unsigned + StackBuffer<[usize; 1]>,
+    As::Elem: Mul<N>,
+    <As::Elem as Mul<N>>::Output: Unsigned,
 {
-    type Len = <As::Len as Add<UInt<UTerm, B1>>>::Output;
     #[inline]
     fn _runtime_inner(ax: &mut [usize], idx: usize) {
         ax[idx] = N::USIZE;
@@ -31,7 +31,6 @@ where
 }
 
 impl StaticAxes for Ax0 {
-    type Len = UInt<UTerm, B0>;
     #[inline]
     fn _runtime_inner(_: &mut [usize], _: usize) {}
     fn runtime() -> <Self::Len as StackBuffer<[usize; 1]>>::Buffer {

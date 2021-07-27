@@ -144,7 +144,7 @@ impl<T, N> KindTypeTypeType<T, N> for VecConstructor {
 #[derive(Debug)]
 pub struct StackBufferConstructor;
 
-impl<T, N> KindTypeTypeType<T, N> for StackBufferConstructor
+impl<T: Copy, N> KindTypeTypeType<T, N> for StackBufferConstructor
 where
     N: StackBuffer<[T; 1]>,
 {

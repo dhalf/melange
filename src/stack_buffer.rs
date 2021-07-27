@@ -1,22 +1,27 @@
 use typenum::uint::{UInt, UTerm};
 use typenum::bit::{B0, B1};
 
-pub trait Scalar {
-    type Scalar;
+pub trait Buffer {
+    type Scalar: Copy;
+    fn fill(value: Self::Scalar) -> Self;
 }
 
-impl<T, const N: usize> Scalar for [T; N] {
+impl<T: Copy, const N: usize> Buffer for [T; N] {
     type Scalar = T;
+    #[inline]
+    fn fill(value: Self::Scalar) -> Self {
+        [value; N]
+    }
 }
 
 pub trait PowerOfTwo {
-    type Next: Scalar;
-    type Null: Scalar;
+    type Next: Buffer;
+    type Null: Buffer;
 }
 
 macro_rules! power_of_two_impl_arr_T {
     ($n:literal $m:literal $($tail:tt)*) => {
-        impl<T> PowerOfTwo for [T; $n] {
+        impl<T: Copy> PowerOfTwo for [T; $n] {
             type Next = [T; $m];
             type Null = [T; 0];
         }
@@ -53,11 +58,26 @@ power_of_two_impl_arr_T! {
     16777216
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub struct Glue<L, R> {
     left: L,
     right: R,
+}
+
+impl<L, R> Buffer for Glue<L, R>
+where
+    L: Buffer,
+    R: Buffer<Scalar = L::Scalar>,
+{
+    type Scalar = L::Scalar;
+    #[inline]
+    fn fill(value: Self::Scalar) -> Self {
+        Glue {
+            left: L::fill(value),
+            right: R::fill(value),
+        }
+    }
 }
 
 pub trait SliceTransmutable<T> {
@@ -109,33 +129,33 @@ where
 
 pub trait StackBuffer<T>
 where
-    T: Scalar,
+    T: Buffer,
 {
-    type Buffer: AsRef<[T::Scalar]> + AsMut<[T::Scalar]> + Default;
+    type Buffer: AsRef<[T::Scalar]> + AsMut<[T::Scalar]> + Default + Buffer<Scalar = T::Scalar> + Clone + Copy + std::fmt::Debug;
 }
 
 impl<T, U> StackBuffer<T> for UInt<U, B1>
 where
-    T: Scalar + PowerOfTwo + Default,
+    T: Buffer + PowerOfTwo + Default,
     U: StackBuffer<T::Next>,
-    Glue<<U as StackBuffer<T::Next>>::Buffer, T>: SliceTransmutable<T::Scalar>,
+    Glue<<U as StackBuffer<T::Next>>::Buffer, T>: SliceTransmutable<T::Scalar> + Buffer<Scalar = T::Scalar> + Clone + Copy + std::fmt::Debug,
 {
     type Buffer = Glue<<U as StackBuffer<T::Next>>::Buffer, T>;
 }
 
 impl<T, U> StackBuffer<T> for UInt<U, B0>
 where
-    T: Scalar + PowerOfTwo,
+    T: Buffer + PowerOfTwo,
     U: StackBuffer<T::Next>,
-    <U as StackBuffer<T::Next>>::Buffer: SliceTransmutable<T::Scalar> + AsRef<[T::Scalar]> + AsMut<[T::Scalar]>,
+    <U as StackBuffer<T::Next>>::Buffer: SliceTransmutable<T::Scalar> + AsRef<[T::Scalar]> + AsMut<[T::Scalar]> + Buffer<Scalar = T::Scalar>,
 {
     type Buffer = <U as StackBuffer<T::Next>>::Buffer;
 }
 
 impl<T> StackBuffer<T> for UTerm
 where
-    T: Scalar + PowerOfTwo,
-    T::Null: AsRef<[T::Scalar]> + AsMut<[T::Scalar]> + Default,
+    T: Buffer + PowerOfTwo,
+    T::Null: AsRef<[T::Scalar]> + AsMut<[T::Scalar]> + Default + Buffer<Scalar = T::Scalar> + Clone + Copy + std::fmt::Debug,
 {
     type Buffer = T::Null;
 }
