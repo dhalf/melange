@@ -4,7 +4,7 @@
 use super::*;
 use crate::stack_buffer::Buffer;
 use crate::hkt::{VecConstructor, StackBufferConstructor};
-use blas::Contiguous;
+use linalg::Contiguous;
 
 /// Unifies satic and dynamic allocation strategies.
 ///

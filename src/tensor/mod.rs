@@ -42,18 +42,19 @@ use crate::iter::strided_iter::StridedIter;
 use crate::iter::strided_iter::StridedIterMut;
 use crate::iter::StreamingIterator;
 use crate::stack_buffer::{Buffer, Glue, StackBuffer};
-use crate::scalar_traits::Zero;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::marker::PhantomData;
-use std::ops::AddAssign;
 use typenum::Unsigned;
 
 pub mod alloc;
 use alloc::*;
 
-pub mod blas;
-use blas::*;
+pub mod linalg;
+use linalg::*;
+
+pub mod elementwise_ops;
+pub mod reductions;
 
 /// Core type of this module that represents a tensor.
 #[derive(Debug)]
@@ -416,8 +417,70 @@ where
         let mut it = it_a.streaming_zip(it_b).streaming_zip(it_c);
 
         while let Some(((chunk_a, chunk_b), chunk_c)) = it.next() {
-            for ((x, y), z) in chunk_a.iter_mut().zip(chunk_b.iter()).zip(chunk_c) {
+            for ((x, y), z) in chunk_a.iter_mut().zip(chunk_b.iter()).zip(chunk_c.iter()) {
                 f(x, y, z);
+            }
+        }
+    }
+    /// Applies given function `f` in-place to all the elements of the tensor,
+    /// the second and third arguments being the corresponding elements of the
+    /// second and third tensors.
+    pub fn zip3_with_mut<U, V, W, Bu, Bv, Bw, Cu, Cv, Cw, F>(
+        &mut self,
+        other0: &Tensor<Bu, U, S, Cu>,
+        other1: &Tensor<Bv, V, S, Cv>,
+        other2: &Tensor<Bw, W, S, Cw>,
+        mut f: F,
+    ) where
+        F: FnMut(&mut T, &U, &V, &W),
+        B::Applied: AsMut<[T]>,
+        Bu: KindTypeTypeType<U, S::Elem>,
+        Bu::Applied: AsRef<[U]>,
+        Bv: KindTypeTypeType<V, S::Elem>,
+        Bv::Applied: AsRef<[V]>,
+        Bw: KindTypeTypeType<W, S::Elem>,
+        Bw::Applied: AsRef<[W]>,
+        T: 'static,
+        U: 'static,
+        V: 'static,
+        W: 'static,
+    {
+        assert_eq!(
+            self.size.as_ref(),
+            other0.size.as_ref(),
+            "Elementwise ops require that operands have the same size. Got {:?} and {:?}.",
+            self.size,
+            other0.size
+        );
+        assert_eq!(
+            self.size.as_ref(),
+            other1.size.as_ref(),
+            "Elementwise ops require that operands have the same size. Got {:?} and {:?}.",
+            self.size,
+            other1.size
+        );
+        assert_eq!(
+            self.size.as_ref(),
+            other2.size.as_ref(),
+            "Elementwise ops require that operands have the same size. Got {:?} and {:?}.",
+            self.size,
+            other2.size
+        );
+
+        let chunk_size = self
+            .opt_chunk_size
+            .min(other0.opt_chunk_size)
+            .min(other1.opt_chunk_size)
+            .min(other2.opt_chunk_size);
+        let it_a = self.chunks_mut(chunk_size);
+        let it_b = other0.chunks(chunk_size);
+        let it_c = other1.chunks(chunk_size);
+        let it_d = other2.chunks(chunk_size);
+        let mut it = it_a.streaming_zip(it_b).streaming_zip(it_c).streaming_zip(it_d);
+
+        while let Some((((chunk_a, chunk_b), chunk_c), chunk_d)) = it.next() {
+            for (((x, y), z), w) in chunk_a.iter_mut().zip(chunk_b.iter()).zip(chunk_c.iter()).zip(chunk_d.iter()) {
+                f(x, y, z, w);
             }
         }
     }
@@ -429,20 +492,6 @@ where
         broadcast_mut broadcast_dyn_mut stride_mut stride_dyn_mut block_mut
         block_dyn_mut transpose_mut ViewMutConstructorPA2 { mut } { as_mut }
         { B::Applied: AsMut<[T]> }
-    }
-    pub fn sum_dyn<Z>(&self, size: <Z::Len as StackBuffer<[usize; 1]>>::Buffer) -> Tensor<B::Buffer, T, Z, Contiguous>
-    where
-        T: Copy + Zero + AddAssign + 'static,
-        Z: Axes<>,
-        Z: Broadcast<S>,
-        B: Realloc<T, Z::Elem>,
-        B::Applied: AsRef<[T]>,
-        <<B as Realloc<T, Z::Elem>>::Buffer as KindTypeTypeType<T, Z::Elem>>::Applied: AsMut<[T]>,
-    {
-        let mut res = self.realloc::<T, Z>(T::ZERO, size);
-        let mut view = res.broadcast_dyn_mut::<S>(self.size);
-        view.zip_with_mut(self, |x, &y| *x += y);
-        res
     }
 }
 

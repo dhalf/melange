@@ -24,6 +24,7 @@ pub mod axes;
 pub mod iter;
 pub mod tensor;
 pub mod scalar_traits;
+pub mod ops;
 
 pub mod prelude {
     pub use typenum::{UInt, UTerm};
