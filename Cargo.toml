@@ -11,3 +11,4 @@ num-complex = "0.2.4"
 cblas = "0.2"
 openblas-src = { version = "0.9", default-features = false, features = ["cblas"] }
 melange_macros = { path = "../melange_macros" }
+as-dyn-trait = "0.2.0"

@@ -1,20 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use typenum::uint::{UInt, UTerm};
-    use typenum::bit::{B0, B1};
-
-    use crate::stack_buffer::{Glue, StackBuffer};
-
+    use crate::autodiff::reverse_mode::*;
     #[test]
     fn it_works() {
-        type Arr5 = <UInt<UInt<UInt<UTerm, B1>, B0>, B1> as StackBuffer<[i32; 1]>>::Buffer;
-        let mut a: Arr5 = Glue::default();
-        let r = a.as_mut();
-        for x in r.iter_mut() {
-            *x += 1;
-        }
-        println!("{:?}", r);
-        panic!("Stop");
+        let g = grad(|a| a + RVar::new(1), 1);
+        assert_eq!(1, g(2));
     }
 }
 
@@ -25,6 +15,7 @@ pub mod iter;
 pub mod tensor;
 pub mod scalar_traits;
 pub mod ops;
+pub mod autodiff;
 
 pub mod prelude {
     pub use typenum::{UInt, UTerm};
