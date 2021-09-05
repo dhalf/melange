@@ -73,21 +73,20 @@ pub trait DynamicBuffer {}
 
 impl DynamicBuffer for VecConstructor {}
 
-impl<B, T, S, C> Tensor<B, T, S, C>
+impl<B, T, S> Tensor<B, T, S, Contiguous>
 where
     B: KindTypeTypeType<T, S::Elem>,
     S: Axes,
 {
-    pub fn realloc<U, Z>(&self, value: U, size: <Z::Len as StackBuffer<[usize; 1]>>::Buffer) -> Tensor<B::Buffer, U, Z, Contiguous>
+    pub fn alloc(value: T, size: <S::Len as StackBuffer<[usize; 1]>>::Buffer) -> Self
     where
-        B: Realloc<U, Z::Elem>,
-        Z: Axes,
+        B: Alloc<T, S::Elem>,
     {
         let len = size.as_ref().iter().product();
         Tensor {
-            buffer: B::Buffer::fill(value, len),
-            offset: <Z::Len as StackBuffer<[usize; 1]>>::Buffer::fill(0),
-            stride: contiguous_stride::<Z::Len>(&size), // fix this: contiguous_stride(size)
+            buffer: B::fill(value, len),
+            offset: <S::Len as StackBuffer<[usize; 1]>>::Buffer::fill(0),
+            stride: contiguous_stride::<S::Len>(&size), // fix this: contiguous_stride(size)
             size: size,
             opt_chunk_size: len,
             _phantoms: PhantomData,

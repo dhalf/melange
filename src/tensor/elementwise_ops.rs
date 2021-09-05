@@ -38,7 +38,7 @@
 //! Please refer to the relevant methods defined on primitive types for further
 //! details.
 
-use std::ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Div, DivAssign, Rem, RemAssign};
+use std::ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Div, DivAssign, Rem, RemAssign, Neg};
 use num_complex::{Complex32, Complex64, Complex};
 use crate::scalar_traits::Cast;
 use crate::ops::*;
@@ -49,9 +49,9 @@ use super::*;
 // C: Mutable tensor
 // K: any scalar type
 
-// -----------------------------------
-// unary ops: C (-> K)* -> inplace ()
-// -----------------------------------
+// ----------------------------------------
+// unary ops: C (-> K | &K)* -> inplace ()
+// ----------------------------------------
 
 macro_rules! args_call {
     ($e:ty, $e2:ty; $x:ident.$fn:ident($rhs0:ident, $rhs1:ident)) => { $x.$fn($rhs0, $rhs1) };
@@ -60,15 +60,14 @@ macro_rules! args_call {
 }
 
 macro_rules! inplace_unary_op_impl_tensor {
-    ($($trait:ident$(<$t:ty$(, $s:ty)?>)? $fn:ident $(for<$gen:ident$(, $gen2:ident)?>)?);*) => {$(
-        impl<B, T, S, C$(, $gen$(, $gen2)?)?> $trait$(<$t$(, $s)?>)? for Tensor<B, T, S, C>
+    ($($trait:ident$(<$t:ty$(, $s:ty)?>)? $fn:ident $(for<$($gens:ident),*>)? $(for<$($ls:lifetime),*>)?);*) => {$(
+        impl<$($($ls,)*)?B, T, S, C$($(, $gens)*)?> $trait$(<$t$(, $s)?>)? for Tensor<B, T, S, C>
         where
             B: KindTypeTypeType<T, S::Elem>,
             B::Applied: AsMut<[T]>,
             S: Axes,
             T: $trait$(<$t$(, $s)?>)? + Copy + 'static,
-            $($gen: Copy,
-            $($gen2: Copy)?)?
+            $($($gens: Copy,)*)?
         {
             fn $fn(&mut self$(, rhs0: $t$(, rhs1: $s)?)?) {
                 self.for_each(|x| args_call!($($t$(, $s)?)?; x.$fn(rhs0, rhs1)));
@@ -92,6 +91,20 @@ inplace_unary_op_impl_tensor! {
     MinAssign<T> min_assign;
     MaxMaskAssign<T> max_mask_assign;
     MinMaskAssign<T> min_mask_assign;
+    AddAssign<&'a T> add_assign for<'a>;
+    SubAssign<&'a T> sub_assign for<'a>;
+    MulAssign<&'a T> mul_assign for<'a>;
+    DivAssign<&'a T> div_assign for<'a>;
+    RemAssign<&'a T> rem_assign for<'a>;
+    Atan2Assign<&'a T> atan2_assign for<'a>;
+    HypotAssign<&'a T> hypot_assign for<'a>;
+    CopysignAssign<&'a T> copysign_assign for<'a>;
+    DivEuclidAssign<&'a T> div_euclid_assign for<'a>;
+    RemEuclidAssign<&'a T> rem_euclid_assign for<'a>;
+    MaxAssign<&'a T> max_assign for<'a>;
+    MinAssign<&'a T> min_assign for<'a>;
+    MaxMaskAssign<&'a T> max_mask_assign for<'a>;
+    MinMaskAssign<&'a T> min_mask_assign for<'a>;
     PowAssign<U> pow_assign for<U>;
     LogAssign<U> log_assign for<U>;
     ExpAssign exp_assign;
@@ -132,6 +145,7 @@ inplace_unary_op_impl_tensor! {
 
 // ---------------------------------
 // binary ops C -> &A -> inplace ()
+//            C -> A -> inplace ()
 // ---------------------------------
 
 macro_rules! inplace_binary_op_impl_tensor {
@@ -147,6 +161,19 @@ macro_rules! inplace_binary_op_impl_tensor {
         {
             fn $fn(&mut self, rhs: &Tensor<B2, T, S, C2>) {
                 self.zip_with_mut(rhs, |x, &y| x.$fn(y));
+            }
+        }
+        impl<B, B2, T, S, C, C2> $trait<Tensor<B2, T, S, C2>> for Tensor<B, T, S, C>
+        where
+            B: KindTypeTypeType<T, S::Elem>,
+            B2: KindTypeTypeType<T, S::Elem>,
+            B::Applied: AsMut<[T]>,
+            B2::Applied: AsRef<[T]>,
+            S: Axes,
+            T: $trait + Copy + 'static,
+        {
+            fn $fn(&mut self, rhs: Tensor<B2, T, S, C2>) {
+                self.zip_with_mut(&rhs, |x, &y| x.$fn(y));
             }
         }
     )*};
@@ -189,25 +216,24 @@ where
     }
 }
 
-// ---------------------------
-// unary ops: &A (-> K)* -> B
-// ---------------------------
+// --------------------------------
+// unary ops: &A (-> K | &K)* -> B
+// --------------------------------
 
 macro_rules! functional_unary_op_impl_ref_tensor {
-    ($($trait:ident$(<$t:ty$(, $s:ty)?>)? $fn:ident $(for<$gen:ident$(, $gen2:ident)?>)?);*) => {$(
-        impl<B, T, S, C$(, $gen$(, $gen2)?)?> $trait$(<$t$(, $s)?>)? for &Tensor<B, T, S, C>
+    ($($trait:ident$(<$t:ty$(, $s:ty)?>)? $fn:ident $(for<$($gens:ident),*>)? $(for<$($ls:lifetime),*>)?);*) => {$(
+        impl<$($($ls,)*)?B, T, S, C$($(, $gens)*)?> $trait$(<$t$(, $s)?>)? for &Tensor<B, T, S, C>
         where
             B: KindTypeTypeType<T, S::Elem> + Realloc<T, S::Elem>,
             B::Applied: AsRef<[T]>,
             <B::Buffer as KindTypeTypeType<T, S::Elem>>::Applied: AsMut<[T]>,
             S: Axes,
             T: $trait<$($t$(, $s)?,)? Output = T> + Default + Copy + 'static,
-            $($gen: Copy,
-            $($gen2: Copy)?)?
+            $($($gens: Copy,)*)?
         {
             type Output = Tensor<B::Buffer, T, S, Contiguous>;
             fn $fn(self$(, rhs0: $t$(, rhs1: $s)?)?) -> Self::Output {
-                let mut res = self.realloc(T::default(), self.size);
+                let mut res = Tensor::alloc(T::default(), self.size);
                 res.zip_with_mut(self, |x, &y| *x = args_call!($($t$(, $s)?)?; y.$fn(rhs0, rhs1)));
                 res
             }
@@ -230,8 +256,23 @@ functional_unary_op_impl_ref_tensor! {
     Min<T> min;
     MaxMask<T> max_mask;
     MinMask<T> min_mask;
+    Add<&'a T> add for<'a>;
+    Sub<&'a T> sub for<'a>;
+    Mul<&'a T> mul for<'a>;
+    Div<&'a T> div for<'a>;
+    Rem<&'a T> rem for<'a>;
+    Atan2<&'a T> atan2 for<'a>;
+    Hypot<&'a T> hypot for<'a>;
+    Copysign<&'a T> copysign for<'a>;
+    DivEuclid<&'a T> div_euclid for<'a>;
+    RemEuclid<&'a T> rem_euclid for<'a>;
+    Max<&'a T> max for<'a>;
+    Min<&'a T> min for<'a>;
+    MaxMask<&'a T> max_mask for<'a>;
+    MinMask<&'a T> min_mask for<'a>;
     Pow<U> pow for<U>;
     Log<U> log for<U>;
+    Neg neg;
     Exp exp;
     Exp2 exp2;
     ExpM1 exp_m1;
@@ -285,7 +326,7 @@ macro_rules! functional_binary_op_impl_ref_tensor {
         {
             type Output = Tensor<B::Buffer, T, S, Contiguous>;
             fn $fn(self, rhs: &Tensor<B2, T, S, C2>) -> Self::Output {
-                let mut res = self.realloc(T::default(), self.size);
+                let mut res = Tensor::alloc(T::default(), self.size);
                 res.zip2_with_mut(self, rhs, |x, &y, &z| *x = y.$fn(z));
                 res
             }
@@ -328,17 +369,24 @@ where
 {
     type Output = Tensor<B::Buffer, T, S, Contiguous>;
     fn mul_add(self, rhs0: &Tensor<B2, T, S, C2>, rhs1: &Tensor<B3, T, S, C3>) -> Self::Output {
-        let mut res = self.realloc(T::default(), self.size);
+        let mut res = Tensor::alloc(T::default(), self.size);
         res.zip3_with_mut(self, rhs0, rhs1, |x, &y, &z, &w| *x = y.mul_add(z, w));
         res
     }
 }
 
+// ----------------------------------------------
+// unary ops:   B (-> K | &K)* -> move,inplace B
+// binary ops:  B -> &A -> move,inplace B
+//              B -> A -> move,inplace B
+// ternary ops: B -> &A -> &A -> move,inplace B
+// ----------------------------------------------
+
 macro_rules! functional_ops_impl_tensor {
     ($($trait:ident$(<$t:ident$(, $s:ident)?>)? $fn:ident $delegate_trait:ident $delegate_fn:ident);*) => {$(
         impl<B, T, S, C$(, $t$(, $s)?)?> $trait$(<$t$(, $s)?>)? for Tensor<B, T, S, C>
         where
-            B: KindTypeTypeType<T, S::Elem>,
+            B: KindTypeTypeType<T, S::Elem> + Realloc<T, S::Elem, Buffer = B>,
             S: Axes,
             Self: $delegate_trait$(<$t$(, $s)?>)?,
         {
@@ -350,12 +398,6 @@ macro_rules! functional_ops_impl_tensor {
         }
     )*};
 }
-
-// ---------------------------------------------
-// unary ops:   B (-> K)* -> move,inplace B
-// binary ops:  B -> &A -> move,inplace B
-// ternary ops: B -> &A -> &A -> move,inplace B
-// ---------------------------------------------
 
 functional_ops_impl_tensor! {
     Add<Rhs> add AddAssign add_assign;
@@ -409,17 +451,33 @@ functional_ops_impl_tensor! {
     MulAdd<Rhs0, Rhs1> mul_add MulAddAssign mul_add_assign
 }
 
-// --------------------------------
-// unary ops: K -> &A -> B
-// --------------------------------
+impl<B, T, S, C> Neg for Tensor<B, T, S, C>
+where
+    B: KindTypeTypeType<T, S::Elem> + Realloc<T, S::Elem, Buffer = B>,
+    B::Applied: AsMut<[T]>,
+    S: Axes,
+    Self: MulAssign<T>,
+    T: Neg<Output = T> + Copy + 'static,
+{
+    type Output = Self;
+    fn neg(mut self) -> Self::Output {
+        self.for_each(|x| *x = -*x);
+        self
+    }
+}
+
+// -----------------------------------------
+// unary ops: K | &K -> &A -> B
+//            K | &K -> B -> move,inplace B
+// -----------------------------------------
 
 macro_rules! for_types {
     ($t:ty, $($u:ty),+: $($tail:tt)*) => {
         for_types!($t: $($tail)*);
         for_types!($($u),+: $($tail)*);
     };
-    ($t:ty: impl$(<$($gen:ident),*>)? $trait:ident$(<$($tp:ty),*>)? for @ $($tail:tt)*) => {
-        impl$(<$($gen),*>)? $trait$(<$($tp),*>)? for $t $($tail)*
+    ($t:ty: $macro:ident $($tail:tt)*) => {
+        $macro! { $($tail)* for $t }
     };
 }
 
@@ -445,25 +503,67 @@ macro_rules! for_floats {
     };
 }
 
-macro_rules! reversed_functional_unary_ops_impl_scalar_types {
-    ($($trait:ident $fn:ident $macro:ident);*) => {$(
-        $macro! {
-            impl<B, S, C> $trait<&Tensor<B, Self, S, C>> for @
-            where
-                B: KindTypeTypeType<Self, S::Elem> + Realloc<Self, S::Elem>,
-                <B::Buffer as KindTypeTypeType<Self, S::Elem>>::Applied: AsMut<[Self]>,
-                B::Applied: AsRef<[Self]>,
-                S: Axes,
-                Self: $trait<Output = Self>,
-            {
-                type Output = Tensor<B::Buffer, Self, S, Contiguous>;
-                fn $fn(self, rhs: &Tensor<B, Self, S, C>) -> Self::Output {
-                    let mut res = rhs.realloc(Self::default(), rhs.size);
-                    res.zip_with_mut(&rhs, |x, &y| *x = <Self as $trait>::$fn(self, y));
-                    res
-                }
+macro_rules! reversed_functional_unary_ops_impl {
+    ($trait:ident $fn:ident for $t:ty) => {
+        impl<B, S, C> $trait<&Tensor<B, $t, S, C>> for $t
+        where
+            B: KindTypeTypeType<$t, S::Elem> + Realloc<$t, S::Elem>,
+            <B::Buffer as KindTypeTypeType<$t, S::Elem>>::Applied: AsMut<[$t]>,
+            B::Applied: AsRef<[$t]>,
+            S: Axes,
+            $t: $trait<Output = $t>,
+        {
+            type Output = Tensor<B::Buffer, $t, S, Contiguous>;
+            fn $fn(self, rhs: &Tensor<B, $t, S, C>) -> Self::Output {
+                let mut res = Tensor::alloc(<$t>::default(), rhs.size);
+                res.zip_with_mut(&rhs, |x, &y| *x = <$t as $trait>::$fn(self, y));
+                res
             }
         }
+
+        impl<'a, B, S, C> $trait<&'a Tensor<B, $t, S, C>> for &'a $t
+        where
+            B: KindTypeTypeType<$t, S::Elem>,
+            S: Axes,
+            $t: $trait<&'a Tensor<B, $t, S, C>>,
+        {
+            type Output = <$t as $trait<&'a Tensor<B, $t, S, C>>>::Output;
+            fn $fn(self, rhs: &'a Tensor<B, $t, S, C>) -> Self::Output {
+                <$t as $trait<&'a Tensor<B, $t, S, C>>>::$fn(*self, rhs)
+            }
+        }
+
+        impl<B, S, C> $trait<Tensor<B, $t, S, C>> for $t
+        where
+            B: KindTypeTypeType<$t, S::Elem> + Realloc<$t, S::Elem, Buffer = B>,
+            B::Applied: AsMut<[$t]>,
+            S: Axes,
+            $t: $trait<Output = $t>,
+        {
+            type Output = Tensor<B, $t, S, C>;
+            fn $fn(self, mut rhs: Tensor<B, $t, S, C>) -> Self::Output {
+                rhs.for_each(|x| *x = <$t as $trait>::$fn(self, *x));
+                rhs
+            }
+        }
+
+        impl<B, S, C> $trait<Tensor<B, $t, S, C>> for &$t
+        where
+            B: KindTypeTypeType<$t, S::Elem>,
+            S: Axes,
+            $t: $trait<Tensor<B, $t, S, C>>,
+        {
+            type Output = <$t as $trait<Tensor<B, $t, S, C>>>::Output;
+            fn $fn(self, rhs: Tensor<B, $t, S, C>) -> Self::Output {
+                <$t as $trait<Tensor<B, $t, S, C>>>::$fn(*self, rhs)
+            }
+        }
+    };
+}
+
+macro_rules! reversed_functional_unary_ops_impl_scalar_types {
+    ($($trait:ident $fn:ident $macro:ident);*) => {$(
+        $macro! { reversed_functional_unary_ops_impl $trait $fn }
     )*};
 }
 
@@ -484,6 +584,47 @@ reversed_functional_unary_ops_impl_scalar_types! {
     MinMask min_mask for_scalar_types_no_complex
 }
 
+// -------------------------------------
+// binary ops &A -> B -> move,inplace B
+// -------------------------------------
+
+macro_rules! reversed_functional_binary_op_impl_ref_tensor {
+    ($($trait:ident $fn:ident);*) => {$(
+        impl<B, B2, T, S, C, C2> $trait<Tensor<B2, T, S, C2>> for &Tensor<B, T, S, C>
+        where
+            B: KindTypeTypeType<T, S::Elem>,
+            B2: KindTypeTypeType<T, S::Elem> + Realloc<T, S::Elem, Buffer = B2>,
+            B::Applied: AsRef<[T]>,
+            B2::Applied: AsMut<[T]>,
+            S: Axes,
+            T: $trait<Output = T> + Copy + 'static,
+        {
+            type Output = Tensor<B2, T, S, C2>;
+            fn $fn(self, mut rhs: Tensor<B2, T, S, C2>) -> Self::Output {
+                rhs.zip_with_mut(self, |x, &y| *x = y.$fn(*x));
+                rhs
+            }
+        }
+    )*};
+}
+
+reversed_functional_binary_op_impl_ref_tensor! {
+    Add add;
+    Sub sub;
+    Mul mul;
+    Div div;
+    Rem rem;
+    Atan2 atan2;
+    Hypot hypot;
+    Copysign copysign;
+    DivEuclid div_euclid;
+    RemEuclid rem_euclid;
+    Max max;
+    Min min;
+    MaxMask max_mask;
+    MinMask min_mask
+}
+
 // -----------------------------------
 // unary conversions: &A (-> K)* -> B
 // -----------------------------------
@@ -501,7 +642,7 @@ macro_rules! unary_conversions_impl_ref_tensor {
         {
             type Output = Tensor<B::Buffer, <T as $trait$(<$t$(, $s)?>)?>::Output, S, Contiguous>;
             fn $fn(self$(, rhs0: $t$(, rhs1: $s)?)?) -> Self::Output {
-                let mut res = self.realloc(<<T as $trait$(<$t$(, $s)?>)?>::Output>::default(), self.size);
+                let mut res = Tensor::alloc(<<T as $trait$(<$t$(, $s)?>)?>::Output>::default(), self.size);
                 res.zip_with_mut(self, |x, &y| *x = args_call!($($t$(, $s)?)?; y.$fn(rhs0, rhs1)));
                 res
             }
@@ -525,24 +666,28 @@ unary_conversions_impl_ref_tensor! {
 // reversed unary conversions: K -> &A -> B
 // -----------------------------------------
 
-macro_rules! reversed_unary_conversions_impl_floats {
-    ($($trait:ident $fn:ident);*) => {$(
-        for_floats! {
-            impl<B, S, C> $trait<&Tensor<B, Self, S, C>> for @
-            where
-                B: KindTypeTypeType<Self, S::Elem> + Realloc<Complex<Self>, S::Elem>,
-                <B::Buffer as KindTypeTypeType<Complex<Self>, S::Elem>>::Applied: AsMut<[Complex<Self>]>,
-                B::Applied: AsRef<[Self]>,
-                S: Axes,
-            {
-                type Output = Tensor<B::Buffer, Complex<Self>, S, Contiguous>;
-                fn $fn(self, rhs: &Tensor<B, Self, S, C>) -> Self::Output {
-                    let mut res = rhs.realloc(Complex::<Self>::default(), rhs.size);
-                    res.zip_with_mut(rhs, |x, &y| *x = y.$fn(self));
-                    res
-                }
+macro_rules! reversed_unary_conversions_impl {
+    ($trait:ident $fn:ident for $t:ty) => {
+        impl<B, S, C> $trait<&Tensor<B, $t, S, C>> for $t
+        where
+            B: KindTypeTypeType<$t, S::Elem> + Realloc<Complex<$t>, S::Elem>,
+            <B::Buffer as KindTypeTypeType<Complex<$t>, S::Elem>>::Applied: AsMut<[Complex<$t>]>,
+            B::Applied: AsRef<[$t]>,
+            S: Axes,
+        {
+            type Output = Tensor<B::Buffer, Complex<$t>, S, Contiguous>;
+            fn $fn(self, rhs: &Tensor<B, $t, S, C>) -> Self::Output {
+                let mut res = Tensor::alloc(Complex::<$t>::default(), rhs.size);
+                res.zip_with_mut(rhs, |x, &y| *x = y.$fn(self));
+                res
             }
         }
+    };
+}
+
+macro_rules! reversed_unary_conversions_impl_floats {
+    ($($trait:ident $fn:ident);*) => {$(
+        for_floats! { reversed_unary_conversions_impl $trait $fn }
     )*};
 }
 
@@ -570,7 +715,7 @@ macro_rules! binary_conversions_impl_tensor {
         {
             type Output = Tensor<B::Buffer, <T as $trait>::Output, S, Contiguous>;
             fn $fn(self, rhs: &Tensor<B2, T, S, C2>) -> Self::Output {
-                let mut res = self.realloc(<<T as $trait>::Output>::default(), self.size);
+                let mut res = Tensor::alloc(<<T as $trait>::Output>::default(), self.size);
                 res.zip2_with_mut(self, rhs, |x, &y, &z| *x = y.$fn(z));
                 res
             }
@@ -601,7 +746,7 @@ where
 {
     type Output = Tensor<B::Buffer, U, S, Contiguous>;
     fn as_(self) -> Self::Output {
-        let mut res = self.realloc(U::default(), self.size);
+        let mut res = Tensor::alloc(U::default(), self.size);
         res.zip_with_mut(self, |x, y| *x = y.as_());
         res
     }

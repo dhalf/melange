@@ -30,7 +30,7 @@ macro_rules! reduction_impl {
             <<B as Realloc<T, Z::Elem>>::Buffer as KindTypeTypeType<T, Z::Elem>>::Applied:
                 AsMut<[T]>,
         {
-            let mut res = self.realloc::<T, Z>($value, size);
+            let mut res = Tensor::alloc($value, size);
             let mut view = res.broadcast_dyn_mut::<S>(self.size);
             view.zip_with_mut(self, $op);
             res
@@ -103,7 +103,7 @@ where
                 .iter()
                 .zip(pad::<_, Z::Len, S::Len>(&size, 1).as_ref().iter())
                 .fold(0, |acc, (&x, &y)| acc + if y == 1 { x } else { 0 });
-            let mut res = self.realloc::<T, Z>(T::ZERO, size);
+            let mut res = Tensor::alloc(T::ZERO, size);
             let mut view = res.broadcast_dyn_mut::<S>(self.size);
             let mean = self.mean_dyn::<Z>(size);
             view.zip2_with_mut(self, &mean.broadcast_dyn(self.size), |x, &y, &z| *x += (y - z) * (y - z));

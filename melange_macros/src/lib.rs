@@ -1,8 +1,9 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use quote::quote;
+use quote::{format_ident, quote};
+use syn::punctuated::Punctuated;
 use syn::visit_mut::VisitMut;
-use syn::{parse_macro_input, Item, Stmt, LitInt};
+use syn::{parse_macro_input, DeriveInput, Item, LitInt, Stmt};
 
 #[cfg(test)]
 mod tests {
@@ -40,7 +41,10 @@ pub fn buf(input: TokenStream) -> TokenStream {
             }
         }
         None => {
-            let len = lit_to_typenum_uint_tokens(&LitInt::new(&format!("{}", elems.len()), Span::call_site()));
+            let len = lit_to_typenum_uint_tokens(&LitInt::new(
+                &format!("{}", elems.len()),
+                Span::call_site(),
+            ));
             let idx = 0..elems.len();
             let elems = elems.iter();
             quote! {
@@ -88,7 +92,8 @@ pub fn ax(input: TokenStream) -> TokenStream {
 pub fn dyn_axes(_: TokenStream, item: TokenStream) -> TokenStream {
     let mut item = parse_macro_input!(item as Item);
 
-    if let Item::Fn(_) | Item::Mod(_) = item {} else {
+    if let Item::Fn(_) | Item::Mod(_) = item {
+    } else {
         panic!("`dyn_axes` attribute only supports function and module items.")
     }
 
@@ -111,23 +116,269 @@ pub fn dyn_axes(_: TokenStream, item: TokenStream) -> TokenStream {
             #(pub type #aliases = #paths;)*
         }
     };
-    let namespace = syn::parse2(namespace).expect("Unable to parse genrated `__dyn_axes_namespace` module.");
+    let namespace =
+        syn::parse2(namespace).expect("Unable to parse genrated `__dyn_axes_namespace` module.");
     let use_stmt = syn::parse2(quote! { use __dyn_axes_namespace::*; }).unwrap();
 
     match &mut item {
         Item::Fn(f) => {
             f.block.stmts.insert(0, Stmt::Item(namespace));
             f.block.stmts.insert(1, Stmt::Item(use_stmt));
-        },
+        }
         Item::Mod(m) => {
             if let Some((_, contained)) = &mut m.content {
                 contained.insert(0, namespace);
                 contained.insert(0, use_stmt);
             }
         }
-        _ => {},
+        _ => {}
     }
     let output = quote! { #item };
     //println!("{}", output);
     output.into()
+}
+
+#[proc_macro_attribute]
+pub fn rvar(_: TokenStream, item: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(item as DeriveInput);
+    impl_rvar_macro(&ast)
+}
+
+fn impl_rvar_macro(ast: &DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+    let rgrad_name = format_ident!("{}RGrad", name);
+    let alloc_data_name = format_ident!("{}AllocData", name);
+    let destruct_name = format_ident!("{}Destructured", name);
+    let vis = &ast.vis;
+    let generics: &Vec<_> = &ast.generics.params.iter().collect();
+    let generic_types: &Vec<_> = &ast
+        .generics
+        .params
+        .iter()
+        .filter(|&p| {
+            if let syn::GenericParam::Type(_) = p {
+                true
+            } else {
+                false
+            }
+        })
+        .collect();
+    let gen = match &ast.data {
+        syn::Data::Struct(s) => {
+            let empty = Punctuated::new();
+            let fields = match &s.fields {
+                syn::Fields::Named(f) => &f.named,
+                syn::Fields::Unnamed(f) => &f.unnamed,
+                syn::Fields::Unit => &empty,
+            };
+            let destruct_fields: Vec<_> = fields
+                .iter()
+                .map(|f| {
+                    let mut f = f.clone();
+                    let ty = &f.ty;
+                    f.ty = syn::parse2(quote! { RVar<#ty> }).unwrap();
+                    f
+                })
+                .collect();
+            let rgrad_fields: Vec<_> = fields
+                .iter()
+                .map(|f| {
+                    let mut f = f.clone();
+                    let ty = &f.ty;
+                    f.ty = syn::parse2(quote! { Grad<#ty> }).unwrap();
+                    f
+                })
+                .collect();
+            let alloc_data_fields: Vec<_> = fields
+                .iter()
+                .map(|f| {
+                    let mut f = f.clone();
+                    let ty = &f.ty;
+                    f.ty = syn::parse2(quote! { <#ty as Differentiable>::AllocData }).unwrap();
+                    f
+                })
+                .collect();
+            let rgrad_zero_impl_fields: Vec<_> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    match &f.ident {
+                        Some(name) => quote! { #name: Grad::NonAllocated(data.#name) },
+                        None => quote! { Grad::NonAllocated(data.#i) },
+                    }
+                })
+                .collect();
+            let rgrad_to_grad_impl_fields: Vec<_> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    match &f.ident {
+                        Some(name) => quote! { #name: rgrad.#name.take() },
+                        None => quote! { rgrad.#i.take() },
+                    }
+                })
+                .collect();
+            let grad_to_rgrad_impl_fields: Vec<_> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    match &f.ident {
+                        Some(name) => quote! { #name: Grad::new(self.#name) },
+                        None => quote! { Grad::new(self.#i) },
+                    }
+                })
+                .collect();
+            let zero_impl_fields: Vec<_> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let ty = &f.ty;
+                    match &f.ident {
+                        Some(name) => quote! { #name: <#ty as Differentiable>::zero(data.#name) },
+                        None => quote! { <#ty as Differentiable>::zero(data.#i) },
+                    }
+                })
+                .collect();
+            let alloc_data_impl_fields: Vec<_> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let ty = &f.ty;
+                    match &f.ident {
+                        Some(name) => quote! { #name: <#ty as Differentiable>::alloc_data(&self.#name) },
+                        None => quote! { <#ty as Differentiable>::alloc_data(&self.#i) },
+                    }
+                })
+                .collect();
+            let destruct_impl_fields: Vec<_> = fields.iter().enumerate().map(|(i, f)| {
+                match &f.ident {
+                    Some(name) => quote! { #name: {
+                            let data = data.clone();
+                            RVar::new_destructured_field_var(self.#name, RVar::clone(&parent), move |x| {
+                                let mut grad = Self::zero_rgrad(data.clone());
+                                grad.#name = Grad::new(x);
+                                grad
+                            })
+                        }
+                    },
+                    None => quote! { {
+                            let data = data.clone();
+                            RVar::new_destructured_field_var(self.#i, RVar::clone(&parent), move |x| {
+                                let mut grad = Self::zero_rgrad(data.clone());
+                                grad.#i = Grad::new(x);
+                                grad
+                            })
+                        }
+                    },
+                }
+            }).collect();
+            let add_impl_fields: Vec<_> = fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| {
+                    let inner = &quote! {
+                        (Grad::Allocated(x), Grad::Allocated(y)) => **x += *y,
+                        (g @ Grad::NonAllocated(_), h @ Grad::Allocated(_)) => *g = h,
+                        _ => (),
+                    };
+                    match &f.ident {
+                        Some(name) => quote! { match (&mut self.#name, other.#name) {
+                            #inner
+                        }},
+                        None => quote! { match (&mut self.#i, other.#i) {
+                            #inner
+                        }},
+                    }
+                })
+                .collect();
+            quote! {
+                #[derive(Clone, Debug)]
+                #ast
+
+                #[derive(Clone, Debug)]
+                #vis struct #destruct_name<#(#generics),*>
+                where
+                    #(#generic_types: Differentiable),*
+                {
+                    #(#destruct_fields),*
+                }
+
+                #[derive(Clone, Debug)]
+                #vis struct #rgrad_name<#(#generics),*>
+                where
+                    #(#generic_types: Differentiable),*
+                {
+                    #(#rgrad_fields),*
+                }
+
+                #[derive(Clone, Debug)]
+                #vis struct #alloc_data_name<#(#generics),*>
+                where
+                    #(#generic_types: Differentiable),*
+                {
+                    #(#alloc_data_fields),*
+                }
+
+                impl<#(#generics),*> Differentiable for #name
+                where
+                    #(#generic_types: Differentiable),*
+                {
+                    type RGrad = #rgrad_name;
+                    type AllocData = #alloc_data_name;
+                    fn rgrad_to_grad(rgrad: Self::RGrad) -> Self {
+                        #name {
+                            #(#rgrad_to_grad_impl_fields),*
+                        }
+                    }
+                    fn grad_to_rgrad(self) -> Self::RGrad {
+                        #rgrad_name {
+                            #(#grad_to_rgrad_impl_fields),*
+                        }
+                    }
+                    fn alloc_data(&self) -> Self::AllocData {
+                        #alloc_data_name {
+                            #(#alloc_data_impl_fields),*
+                        }
+                    }
+                    fn zero(data: Self::AllocData) -> Self {
+                        #name {
+                            #(#zero_impl_fields),*
+                        }
+                    }
+                    fn zero_rgrad(data: Self::AllocData) -> Self::RGrad {
+                        #rgrad_name {
+                            #(#rgrad_zero_impl_fields),*
+                        }
+                    }
+                }
+
+                impl<#(#generics),*> Destructure for #name
+                where
+                    #(#generic_types: Differentiable),*
+                {
+                    type Destructured = #destruct_name;
+                    fn internal_destructure(self, parent: RVar<Self>) -> Self::Destructured {
+                        let data = self.alloc_data();
+                        #destruct_name {
+                            #(#destruct_impl_fields),*
+                        }
+                    }
+                }
+
+                impl<#(#generics),*> std::ops::AddAssign<#rgrad_name<#(#generics),*>> for #rgrad_name<#(#generics),*>
+                where
+                    #(#generic_types: Differentiable),*
+                {
+                    fn add_assign(&mut self, other: #rgrad_name<#(#generics),*>) {
+                        #(#add_impl_fields);*
+                    }
+                }
+            }
+        }
+        _ => {
+            quote! {}
+        }
+    };
+    //println!("{}", gen);
+    gen.into()
 }

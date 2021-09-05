@@ -88,7 +88,7 @@ pub trait KindTypeTypeType<T: ?Sized, N> {
 /// Lowered partially applied immutable reference HKT.
 ///
 /// `Ref :: * -> '* -> *`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RefConstructorPA1<T: ?Sized + 'static>(PhantomData<&'static T>);
 
 impl<'a, T> KindLifetimeType<'a> for RefConstructorPA1<T>
@@ -101,7 +101,7 @@ where
 /// Lowered partially applied mutable reference HKT.
 ///
 /// `RefMut :: * -> '* -> *`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RefMutConstructorPA1<T: ?Sized + 'static>(PhantomData<&'static mut T>);
 
 impl<'a, T> KindLifetimeType<'a> for RefMutConstructorPA1<T>
@@ -118,7 +118,7 @@ where
 /// Used to implement StreamingIterators on types that already implement
 /// Iterator. To keep the same behavior in the streaming version,
 /// lifetime adaptation needs not be performed at all.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LifetimeInvariantPA1<T>(PhantomData<*const T>);
 
 impl<'a, T> KindLifetimeType<'a> for LifetimeInvariantPA1<T> {
@@ -131,7 +131,7 @@ impl<'a, T> KindLifetimeType<'a> for LifetimeInvariantPA1<T> {
 ///
 /// Vec is viewed as a constructor of kind `* -> const usize -> *`
 /// that disregards its second argument.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VecConstructor;
 
 impl<T, N> KindTypeTypeType<T, N> for VecConstructor {
@@ -141,7 +141,7 @@ impl<T, N> KindTypeTypeType<T, N> for VecConstructor {
 /// Lowered StackBuffer HKT.
 ///
 /// `StackBuffer :: * -> * -> *`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StackBufferConstructor;
 
 impl<T: Copy, N> KindTypeTypeType<T, N> for StackBufferConstructor
@@ -155,7 +155,7 @@ where
 /// the referenced data) HKT.
 ///
 /// `View :: (* -> * -> *) -> '* -> (* -> * -> *)`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ViewConstructorPA2<'a, C>(PhantomData<(*const C, &'a ())>);
 
 impl<'a, C, T: 'a, N> KindTypeTypeType<T, N> for ViewConstructorPA2<'a, C> {
@@ -166,7 +166,7 @@ impl<'a, C, T: 'a, N> KindTypeTypeType<T, N> for ViewConstructorPA2<'a, C> {
 /// the referenced data) HKT.
 ///
 /// `View :: (* -> * -> *) -> '* -> (* -> * -> *)`
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ViewMutConstructorPA2<'a, C>(PhantomData<(*const C, &'a ())>);
 
 impl<'a, C, T: 'a, N> KindTypeTypeType<T, N> for ViewMutConstructorPA2<'a, C> {

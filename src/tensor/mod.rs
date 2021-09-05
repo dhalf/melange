@@ -57,7 +57,7 @@ pub mod elementwise_ops;
 pub mod reductions;
 
 /// Core type of this module that represents a tensor.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tensor<B, T, S, C>
 where
     B: KindTypeTypeType<T, S::Elem>,
@@ -298,6 +298,10 @@ where
     B: KindTypeTypeType<T, S::Elem>,
     S: Axes,
 {
+    #[inline]
+    pub fn size(&self) -> <S::Len as StackBuffer<[usize; 1]>>::Buffer {
+        self.size
+    }
     #[inline]
     fn chunks<'a>(
         &'a self,

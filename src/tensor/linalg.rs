@@ -12,13 +12,13 @@ use crate::prelude::*;
 use crate::scalar_traits::{Zero, One};
 use melange_macros::{ax, buf};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Contiguous;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Transposed;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Strided;
 
 /// Defines the constant that should be passed to BLAS operations.
@@ -83,7 +83,7 @@ macro_rules! dots_impl_floats_complex {
                     "Contracted dimmensions must be equal, got sizes {:?} and {:?}.",
                     self.size.as_ref(), other.size.as_ref()
                 );
-                let mut res = self.realloc(<$t as Zero>::ZERO, buf![self.size.as_ref()[0]; usize]);
+                let mut res: Tensor<B::Buffer, $t, ax!(N), Contiguous> = Tensor::alloc(<$t as Zero>::ZERO, buf![self.size.as_ref()[0]; usize]);
 
                 unsafe {
                     $mvdot(
@@ -119,7 +119,7 @@ macro_rules! dots_impl_floats_complex {
                     "Contracted dimmensions must be equal, got sizes {:?} and {:?}.",
                     self.size.as_ref(), other.size.as_ref()
                 );
-                let mut res = self.realloc(<$t as Zero>::ZERO, buf![self.size.as_ref()[0], other.size.as_ref()[1]; usize]);
+                let mut res: Tensor<B::Buffer, $t, ax!(N, M), Contiguous> = Tensor::alloc(<$t as Zero>::ZERO, buf![self.size.as_ref()[0], other.size.as_ref()[1]; usize]);
 
                 unsafe {
                     $mmdot(
